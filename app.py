@@ -115,7 +115,8 @@ def charger_toutes_les_courses():
                     rec = row.to_dict()
                     rec['Cheval'] = str(row.get('Nom', f'Cheval {idx}'))
                     rec['Cheval_clean'] = rec['Cheval'].strip().upper()
-                    rec['Num_PMU'] = row.get('Num_PMU', idx + 1)
+                    # Conservation sécurisée du vrai Numéro PMU de la source
+                    rec['Num_PMU'] = int(row.get('Num_PMU', idx + 1)) if pd.notna(row.get('Num_PMU')) else idx + 1
                     rec['Driver_Jockey'] = str(row.get('Driver_Jockey', 'JOKEY'))
                     rec['Entraineur'] = str(row.get('Entraineur', 'ENTRAINEUR'))
                     rec['Poids'] = float(row.get('Poids', 58.0)) if pd.notna(row.get('Poids')) else 58.0
@@ -138,7 +139,7 @@ def charger_toutes_les_courses():
         "R1": {
             "hippodrome": "Deauville (Secours)",
             "courses": {
-                "C1": [{'Num_PMU': i, 'Cheval': f'Cheval Deauville {i}', 'Cheval_clean': f'CHEVAL DEAUVILLE {i}', 'Driver_Jockey': 'JOKEY', 'Poids': 58.0, 'Place_Corde': i, 'Entraineur': 'ENTRAINEUR', 'Oeilleres': 'SANS', 'Musique': '1p2p', 'Supplement': 0} for i in range(1, 9)]
+                "C1": [{'Num_PMU': i+1, 'Cheval': f'Cheval Deauville {i+1}', 'Cheval_clean': f'CHEVAL DEAUVILLE {i+1}', 'Driver_Jockey': 'JOKEY', 'Poids': 58.0, 'Place_Corde': i+1, 'Entraineur': 'ENTRAINEUR', 'Oeilleres': 'SANS', 'Musique': '1p2p', 'Supplement': 0} for i in range(8)]
             }
         }
     }
@@ -146,7 +147,7 @@ def charger_toutes_les_courses():
 db_courses = charger_toutes_les_courses()
 
 # ==========================================
-# 3. MOTEUR DE PRÉDICTION & FIABILITÉ
+# 3. MOTEUR DE PRÉDICTION & FIABILITÉ CORRIGÉ
 # ==========================================
 def predire_probas_v2(df_entree):
     if df_entree.empty:
@@ -191,15 +192,18 @@ def predire_probas_v2(df_entree):
     else:
         df_p['raw_score'] = 0.5
         
-    df_p = df_p.sort_values('raw_score', ascending=False).reset_index(drop=True)
-    X_aligned = df_p[actual_features].fillna(0).astype(np.float32)
-
+    # Tri décroissant selon le score du modèle d'IA
+    df_p = df_p.sort_values('raw_score', ascending=False)
+    
     nb_p = len(df_p)
     base_top_proba = 70.0 if (8 <= nb_p <= 16) else 60.0
 
-    for i in range(nb_p):
-        val_proba = max(5.0, base_top_proba - (i * (base_top_proba / max(1, nb_p))))
-        df_p.loc[i, 'Proba_V4'] = round(val_proba, 1)
+    # Attribution des pourcentages de manière relative au classement IA mais SANS toucher au vrai Num_PMU
+    df_p['Proba_V4'] = [round(max(5.0, base_top_proba - (i * (base_top_proba / max(1, nb_p)))), 1) for i in range(nb_p)]
+    
+    # On réinitialise l'index pour l'affichage interne mais les Num_PMU d'origine restent intacts
+    df_p = df_p.reset_index(drop=True)
+    X_aligned = df_p[actual_features].fillna(0).astype(np.float32)
         
     return df_p, X_aligned
 
@@ -226,7 +230,7 @@ with st.sidebar:
 r_parts = pd.DataFrame(partants_bruts_actifs)
 parts, X_clean = predire_probas_v2(r_parts)
 
-# --- TOP 3 FAVORIS AVEC CODE COULEUR PARTANTS (Vert: 8-16, Rouge: sinon) ---
+# --- TOP 3 FAVORIS AVEC VRAIS NUMÉROS PMU ---
 with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏆 Top 3 Favoris (Toutes Courses)")
@@ -238,7 +242,6 @@ with st.sidebar:
             top3_c = df_c_tmp.head(3)
             resume_str = ", ".join([f"N°{int(row['Num_PMU'])} {row['Cheval']} ({row['Proba_V4']:.0f}%)" for _, row in top3_c.iterrows()])
             
-            # Badge de couleur selon le nombre de partants (8 à 16 = vert, sinon rouge)
             if 8 <= nb_p_course <= 16:
                 st.markdown(f"<span style='color:green;'>• **{c_k}** ({nb_p_course} partants) : {resume_str}</span>", unsafe_allow_html=True)
             else:
@@ -251,7 +254,6 @@ st.subheader(f"📊 Tableau Synthétique : {reunion_choisie} - {course_choisie} 
 if not parts.empty:
     colonnes_affichage = [c for c in ['Num_PMU', 'Cheval', 'Driver_Jockey', 'Poids', 'Corde', 'Equipement', 'Proba_V4'] if c in parts.columns]
     
-    # Copie pour afficher un index 1-based au lieu de 0-based
     df_affiche = parts[colonnes_affichage].copy()
     df_affiche.index = range(1, len(df_affiche) + 1)
     
@@ -267,8 +269,6 @@ if not parts.empty:
     st.subheader(f"🔍 Analyse Intelligente des 3 favoris ({reunion_choisie} {course_choisie})")
 
     top3_parts = parts.head(3).copy().reset_index(drop=True)
-    
-    # Calcul du poids moyen de la course pour comparaison
     poids_moyen = parts['Poids'].mean() if 'Poids' in parts.columns else 58.0
 
     for i in range(min(3, len(top3_parts))):
@@ -283,11 +283,9 @@ if not parts.empty:
         equipement = str(row.get('Equipement', 'SANS')).upper()
         supplement = row.get('Supplement', 0)
         
-        # Génération des points forts et faibles textuels basés sur les données réelles
         points_forts = []
         points_faibles = []
         
-        # Analyse de la musique
         if musique:
             victoires_recentes = musique.count('1')
             places_recentes = musique.count('2') + musique.count('3')
@@ -298,7 +296,6 @@ if not parts.empty:
             else:
                 points_faibles.append(f"Sa musique récente ({musique}) montre un profil plus inconstant, nécessitant un rachat.")
 
-        # Analyse du poids par rapport à la moyenne
         ecart_poids = poids_cheval - poids_moyen
         if ecart_poids > 1.0:
             points_faibles.append(f"Il porte un poids de {poids_cheval:.1f} kg, soit {abs(ecart_poids):.1f} kg de plus que la moyenne des partants, ce qui alourdit un peu sa tâche.")
@@ -307,18 +304,15 @@ if not parts.empty:
         else:
             points_forts.append(f"Il est bien situé au poids (portant {poids_cheval:.1f} kg, proche de la moyenne du lot).")
 
-        # Analyse des équipements / œillères
         if any(k in equipement for k in ['O', 'A', 'OEILLERE', 'AUSTRALIENNE']) and 'SANS' not in equipement:
             if int(row.get('Oeilleres_1ere_fois', 0)) == 1:
                 points_forts.append(f"🔥 **Information clé** : Il est muni d'œillères pour la **toute première fois**, un paramètre souvent redoutable pour provoquer un déclic de performance.")
             else:
                 points_forts.append(f"Il est muni d'équipements fermés ({equipement}), qu'il connait bien et qui semblent lui convenir.")
         
-        # Analyse de la supplémentation
         if pd.notna(supplement) and str(supplement).strip() not in ['', '0', '0.0', 'nan']:
             points_forts.append(f"💎 **Supplémenté** pour cette course : son entourage n'effectue pas ce déplacement par hasard.")
 
-        # Conduite de l'association jockey / régularité
         points_forts.append(f"Associé à **{jockey_nom}**, son profil global et son aptitude lui confèrent de sérieux arguments pour viser haut.")
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité)", expanded=True):
@@ -352,6 +346,5 @@ if not parts.empty:
                 else:
                     st.markdown("• Aucun point faible notable relevé dans son historique récent.")
 
-            # Alerte visuelle œillères 1ère fois
             if int(row.get('Oeilleres_1ere_fois', 0)) == 1:
                 st.warning("🔥 **EFFET SURPRISE MAJEUR** : Première fois avec des œillères ! Forte probabilité d'un comportement bonifié.")

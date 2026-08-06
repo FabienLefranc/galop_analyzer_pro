@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-import shap
 import joblib
 import json
 import os
@@ -19,19 +18,17 @@ FEATURE_LABELS = {
     'Oeilleres_1ere_fois': '1ère fois Oeillères',
     'Porte_Oeilleres': 'Port d\'œillères',
     'Total_courses': 'Expérience (Total courses)',
-    'Taux_Victoire': 'Taux de victoire',
-    'Taux_Places': 'Taux de places',
-    'Forme_Rente': 'Forme récente'
+    'Gains_Total': 'Gains totaux',
+    'Total_montes': 'Expérience Jockey',
+    'Freq_Cheval_Jockey': 'Complicité Couple'
 }
 
 @st.cache_data
 def load_feature_names():
     paths = [
         "features_v6.json",
-        "4_app/features_v6.json",
-        "data/modele/features_v6.json",
-        os.path.join(os.path.dirname(__file__), "features_v6.json"),
-        os.path.join(os.path.dirname(__file__), "../data/modele/features_v6.json")
+        "data/dataset/features_v6.json",
+        os.path.join(os.path.dirname(__file__), "features_v6.json")
     ]
     for p in paths:
         if os.path.exists(p):
@@ -40,7 +37,13 @@ def load_feature_names():
                     return json.load(f)
             except Exception:
                 pass
-    return list(FEATURE_LABELS.keys())
+    return [
+        'Poids_num', 'Corde_num', 
+        'Total_courses', 'Gains_Total', 
+        'Courses_Gazon', 'Courses_PSF', 
+        'Total_montes', 'Montes_Gazon', 'Montes_PSF', 
+        'Freq_Cheval_Jockey'
+    ]
 
 actual_features = load_feature_names()
 
@@ -48,12 +51,7 @@ actual_features = load_feature_names()
 def load_model():
     paths = [
         "modele_galop_v6_couplages.joblib",
-        "4_app/modele_galop_v6_couplages.joblib",
-        "data/modele/modele_galop_v6_couplages.joblib",
-        "model_v4.pkl",
-        "4_app/model_v4.pkl",
-        os.path.join(os.path.dirname(__file__), "modele_galop_v6_couplages.joblib"),
-        os.path.join(os.path.dirname(__file__), "../data/modele/modele_galop_v6_couplages.joblib")
+        os.path.join(os.path.dirname(__file__), "modele_galop_v6_couplages.joblib")
     ]
     for path in paths:
         if os.path.exists(path):
@@ -63,21 +61,36 @@ def load_model():
                 return f"Erreur chargement ({path}) : {e}"
     return None
 
-URL_COURSES_JOUR = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJugx0HS5vID0MHWLRO-5GYEBtb1vmJXvZrYPLfI4x6avcitpRO7dtfRE9WxK3UwZRpzx-59MRicxV/pub?gid=1852089216&single=true&output=csv"
-URL_MASTER_HISTORIQUE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJugx0HS5vID0MHWLRO-5GYEBtb1vmJXvZrYPLfI4x6avcitpRO7dtfRE9WxK3UwZRpzx-59MRicxV/pub?gid=644246763&single=true&output=csv"
-
+# Chargement des Masters Parquet locaux
 @st.cache_data(ttl=600)
-def load_master():
+def load_masters_parquet():
+    masters_dir = "data/masters"
     try:
-        df = pd.read_csv(URL_MASTER_HISTORIQUE)
-        df.columns = df.columns.str.strip()
-        return df
+        df_chevaux = pd.read_parquet(os.path.join(masters_dir, 'master_chevaux.parquet')) if os.path.exists(os.path.join(masters_dir, 'master_chevaux.parquet')) else pd.DataFrame()
+        df_jockeys = pd.read_parquet(os.path.join(masters_dir, 'master_jockeys.parquet')) if os.path.exists(os.path.join(masters_dir, 'master_jockeys.parquet')) else pd.DataFrame()
+        df_entraineurs = pd.read_parquet(os.path.join(masters_dir, 'master_entraineurs.parquet')) if os.path.exists(os.path.join(masters_dir, 'master_entraineurs.parquet')) else pd.DataFrame()
+        df_couplages = pd.read_parquet(os.path.join(masters_dir, 'master_couplages.parquet')) if os.path.exists(os.path.join(masters_dir, 'master_couplages.parquet')) else pd.DataFrame()
+        return df_chevaux, df_jockeys, df_entraineurs, df_couplages
     except Exception:
-        return pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 model_res = load_model()
-df_master = load_master()
+df_chevaux, df_jockeys, df_entraineurs, df_couplages = load_masters_parquet()
 model_v6 = model_res if not isinstance(model_res, str) else None
+
+def nettoyer_nom(nom):
+    if not isinstance(nom, str):
+        return "INCONNU"
+    import unicodedata, re
+    n = unicodedata.normalize('NFD', nom).encode('ascii', 'ignore').decode('utf-8')
+    return re.sub(r'\s+', ' ', n).strip().upper()
+
+def safe_float(val, default=0.0):
+    try:
+        val_clean = str(val).replace(',', '.').strip()
+        return float(val_clean)
+    except (ValueError, TypeError):
+        return default
 
 def fix_poids(valeur):
     try:
@@ -88,6 +101,8 @@ def fix_poids(valeur):
 # ==========================================
 # 2. CHARGEMENT DEPUIS LES EN-TÊTES GOOGLE SHEET
 # ==========================================
+URL_COURSES_JOUR = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJugx0HS5vID0MHWLRO-5GYEBtb1vmJXvZrYPLfI4x6avcitpRO7dtfRE9WxK3UwZRpzx-59MRicxV/pub?gid=1852089216&single=true&output=csv"
+
 @st.cache_data(ttl=600)
 def charger_toutes_les_courses():
     try:
@@ -113,21 +128,20 @@ def charger_toutes_les_courses():
                 records = []
                 for idx, row in group.iterrows():
                     rec = row.to_dict()
-                    rec['Cheval'] = str(row.get('Nom', f'Cheval {idx}'))
-                    rec['Cheval_clean'] = rec['Cheval'].strip().upper()
-                    # Conservation sécurisée du vrai Numéro PMU de la source
+                    rec['Nom'] = str(row.get('Nom', f'Cheval {idx}'))
+                    rec['Cheval_clean'] = nettoyer_nom(rec['Nom'])
+                    rec['Jockey_clean'] = nettoyer_nom(row.get('Driver_Jockey', 'JOKEY'))
+                    rec['Entraineur_clean'] = nettoyer_nom(row.get('Entraineur', 'ENTRAINEUR'))
                     rec['Num_PMU'] = int(row.get('Num_PMU', idx + 1)) if pd.notna(row.get('Num_PMU')) else idx + 1
                     rec['Driver_Jockey'] = str(row.get('Driver_Jockey', 'JOKEY'))
                     rec['Entraineur'] = str(row.get('Entraineur', 'ENTRAINEUR'))
-                    rec['Poids'] = float(row.get('Poids', 58.0)) if pd.notna(row.get('Poids')) else 58.0
-                    rec['Corde'] = int(row.get('Place_Corde', row.get('Corde_Piste', 1))) if pd.notna(row.get('Place_Corde', row.get('Corde_Piste', 1))) else 1
+                    rec['Poids_num'] = safe_float(row.get('Poids'), 58.0)
+                    rec['Corde_num'] = safe_float(row.get('Place_Corde', row.get('Corde_Piste')), 1.0)
+                    rec['Poids'] = rec['Poids_num']
+                    rec['Corde'] = int(rec['Corde_num'])
                     rec['Equipement'] = str(row.get('Oeilleres', 'SANS'))
                     rec['Musique'] = str(row.get('Musique', ''))
                     rec['Supplement'] = row.get('Supplement', 0)
-                    rec['Age'] = row.get('Age', 0)
-                    rec['Sexe'] = row.get('Sexe', '')
-                    rec['Nb_Victoires'] = row.get('Nb_Victoires', 0)
-                    rec['Nb_Places'] = row.get('Nb_Places', 0)
                     records.append(rec)
                     
                 base_courses[r_str]["courses"][c_str] = records
@@ -135,19 +149,12 @@ def charger_toutes_les_courses():
     except Exception as e:
         st.error(f"Erreur lors de la lecture du Google Sheet : {e}")
 
-    return {
-        "R1": {
-            "hippodrome": "Deauville (Secours)",
-            "courses": {
-                "C1": [{'Num_PMU': i+1, 'Cheval': f'Cheval Deauville {i+1}', 'Cheval_clean': f'CHEVAL DEAUVILLE {i+1}', 'Driver_Jockey': 'JOKEY', 'Poids': 58.0, 'Place_Corde': i+1, 'Entraineur': 'ENTRAINEUR', 'Oeilleres': 'SANS', 'Musique': '1p2p', 'Supplement': 0} for i in range(8)]
-            }
-        }
-    }
+    return {}
 
 db_courses = charger_toutes_les_courses()
 
 # ==========================================
-# 3. MOTEUR DE PRÉDICTION & FIABILITÉ CORRIGÉ
+# 3. MOTEUR DE PRÉDICTION & FUSION MASTERS
 # ==========================================
 def predire_probas_v2(df_entree):
     if df_entree.empty:
@@ -155,22 +162,27 @@ def predire_probas_v2(df_entree):
         
     df_p = df_entree.copy()
     
-    if not df_master.empty and 'Cheval_clean' in df_master.columns and 'Cheval_clean' in df_p.columns:
-        cols_m = [c for c in df_master.columns if c not in df_p.columns or c == 'Cheval_clean']
-        df_p = df_p.merge(df_master[cols_m], on='Cheval_clean', how='left')
+    # Fusions exactes avec les fichiers Parquet Masters
+    if not df_chevaux.empty and 'Cheval_clean' in df_p.columns:
+        df_p = df_p.merge(df_chevaux, on='Cheval_clean', how='left')
+    if not df_jockeys.empty and 'Jockey_clean' in df_p.columns:
+        df_p = df_p.merge(df_jockeys, on='Jockey_clean', how='left')
+    if not df_entraineurs.empty and 'Entraineur_clean' in df_p.columns:
+        df_p = df_p.merge(df_entraineurs, on='Entraineur_clean', how='left')
+        
+    if not df_couplages.empty and 'Cheval_clean' in df_p.columns and 'Jockey_clean' in df_p.columns:
+        df_cj = df_couplages.rename(columns={'Entite_1': 'Cheval_clean', 'Entite_2': 'Jockey_clean', 'Frequence_Association': 'Freq_Cheval_Jockey'})
+        df_p = df_p.merge(df_cj[['Cheval_clean', 'Jockey_clean', 'Freq_Cheval_Jockey']], on=['Cheval_clean', 'Jockey_clean'], how='left')
 
-    df_p['Equipement'] = df_p['Equipement'].fillna("SANS").astype(str).str.upper()
-    porte_auj = df_p['Equipement'].apply(
-        lambda x: 1 if any(k in x for k in ['O', 'A', '1', 'OEILLERE', 'AUSTRALIENNE']) and 'SANS' not in x else 0
-    )
-    
-    hist_oeil = pd.to_numeric(df_p['Porte_Oeilleres_Hist'], errors='coerce').fillna(0) if 'Porte_Oeilleres_Hist' in df_p.columns else 0
-    df_p['Oeilleres_1ere_fois'] = ((porte_auj == 1) & (hist_oeil == 0)).astype(int)
-    df_p['Porte_Oeilleres'] = porte_auj
+    # Valeurs par défaut si non trouvées
+    df_p = df_p.fillna({
+        'Total_courses': 0,
+        'Gains_Total': 0.0,
+        'Total_montes': 0,
+        'Freq_Cheval_Jockey': 0,
+        'Oeilleres_1ere_fois': 0
+    })
 
-    if 'Sexe' in df_p.columns:
-        df_p['Sexe'] = df_p['Sexe'].astype(str).str.upper().apply(lambda x: 1 if any(k in x for k in ['M', 'H', '1']) else 0)
-    
     for col in actual_features:
         if col not in df_p.columns:
             df_p[col] = 0.0
@@ -198,10 +210,7 @@ def predire_probas_v2(df_entree):
     nb_p = len(df_p)
     base_top_proba = 70.0 if (8 <= nb_p <= 16) else 60.0
 
-    # Attribution des pourcentages de manière relative au classement IA mais SANS toucher au vrai Num_PMU
     df_p['Proba_V4'] = [round(max(5.0, base_top_proba - (i * (base_top_proba / max(1, nb_p)))), 1) for i in range(nb_p)]
-    
-    # On réinitialise l'index pour l'affichage interne mais les Num_PMU d'origine restent intacts
     df_p = df_p.reset_index(drop=True)
     X_aligned = df_p[actual_features].fillna(0).astype(np.float32)
         
@@ -211,6 +220,10 @@ def predire_probas_v2(df_entree):
 # 4. INTERFACE UTILISATEUR & SIDEBAR
 # ==========================================
 st.title("🏇 Galop Analyzer Pro")
+
+if not db_courses:
+    st.error("Impossible de charger les courses du jour. Vérifiez le lien Google Sheet.")
+    st.stop()
 
 with st.sidebar:
     st.header("⚙️ Paramètres & Course")
@@ -230,7 +243,7 @@ with st.sidebar:
 r_parts = pd.DataFrame(partants_bruts_actifs)
 parts, X_clean = predire_probas_v2(r_parts)
 
-# --- TOP 3 FAVORIS AVEC VRAIS NUMÉROS PMU ---
+# --- TOP 3 FAVORIS ---
 with st.sidebar:
     st.markdown("---")
     st.markdown("### 🏆 Top 3 Favoris (Toutes Courses)")
@@ -240,21 +253,24 @@ with st.sidebar:
             nb_p_course = len(c_partants)
             df_c_tmp, _ = predire_probas_v2(pd.DataFrame(c_partants))
             top3_c = df_c_tmp.head(3)
-            resume_str = ", ".join([f"N°{int(row['Num_PMU'])} {row['Cheval']} ({row['Proba_V4']:.0f}%)" for _, row in top3_c.iterrows()])
+            resume_str = ", ".join([f"N°{int(row['Num_PMU'])} {row['Nom']} ({row['Proba_V4']:.0f}%)" for _, row in top3_c.iterrows()])
             
             if 8 <= nb_p_course <= 16:
-                st.markdown(f"<span style='color:green;'>• **{c_k}** ({nb_p_course} partants) : {resume_str}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:green;'>• **{c_k}** ({nb_p_course} p.) : {resume_str}</span>", unsafe_allow_html=True)
             else:
-                st.markdown(f"<span style='color:red;'>• **{c_k}** ({nb_p_course} partants) : {resume_str}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:red;'>• **{c_k}** ({nb_p_course} p.) : {resume_str}</span>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. TABLEAU SYNTHÉTIQUE (INDEX COMMENÇANT À 1)
+# 5. TABLEAU SYNTHÉTIQUE
 # ==========================================
 st.subheader(f"📊 Tableau Synthétique : {reunion_choisie} - {course_choisie} ({hippodrome_actuel}) — {nb_partants} Partants")
 if not parts.empty:
-    colonnes_affichage = [c for c in ['Num_PMU', 'Cheval', 'Driver_Jockey', 'Poids', 'Corde', 'Equipement', 'Proba_V4'] if c in parts.columns]
+    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Equipement', 'Proba_V4']
+    colonnes_affichage = [c for c in colonnes_disponibles if c in parts.columns]
     
     df_affiche = parts[colonnes_affichage].copy()
+    if 'Nom' in df_affiche.columns:
+        df_affiche = df_affiche.rename(columns={'Nom': 'Cheval'})
     df_affiche.index = range(1, len(df_affiche) + 1)
     
     st.dataframe(df_affiche, use_container_width=True)
@@ -262,92 +278,85 @@ else:
     st.info("Aucune donnée disponible pour cette sélection.")
 
 # ==========================================
-# 6. ANALYSE SHAP NARRATIVE ET INTELLIGENTE (MODE EXPERT)
+# 6. ANALYSE NARRATIVE ULTRA-PRÉCISE ET CHIFFRÉE
 # ==========================================
 if not parts.empty:
     st.markdown("---")
     st.subheader(f"🔍 Analyse Intelligente et Chiffrée des 3 favoris ({reunion_choisie} {course_choisie})")
 
     top3_parts = parts.head(3).copy().reset_index(drop=True)
-    poids_moyen = parts['Poids'].mean() if 'Poids' in parts.columns else 58.0
+    poids_moyen = parts['Poids_num'].mean() if 'Poids_num' in parts.columns else 58.0
 
     for i in range(min(3, len(top3_parts))):
         row = top3_parts.iloc[i]
         medaille = ["🥇 1er Favori", "🥈 2ème Favori", "🥉 3ème Favori"][i]
         proba = row.get('Proba_V4', 50)
         
-        cheval_nom = row.get('Cheval', 'Ce cheval')
+        cheval_nom = row.get('Nom', 'Ce cheval')
         jockey_nom = row.get('Driver_Jockey', 'son jockey')
         entraineur_nom = row.get('Entraineur', 'son entraîneur')
         musique = str(row.get('Musique', ''))
-        poids_cheval = float(row.get('Poids', 58.0))
+        poids_cheval = float(row.get('Poids_num', 58.0))
         equipement = str(row.get('Equipement', 'SANS')).upper()
-        supplement = row.get('Supplement', 0)
         
-        # Récupération des vraies stats issues des masters Parquet
-        total_courses_cheval = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
-        gains_cheval = float(row.get('Gains_Total', 0.0)) if pd.notna(row.get('Gains_Total')) else 0.0
-        total_montes_jockey = int(row.get('Total_montes', 0)) if pd.notna(row.get('Total_montes')) else 0
+        # Statistiques réelles issues des Masters Parquet
+        total_courses = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
+        gains_total = float(row.get('Gains_Total', 0.0)) if pd.notna(row.get('Gains_Total')) else 0.0
+        total_montes = int(row.get('Total_montes', 0)) if pd.notna(row.get('Total_montes')) else 0
         freq_couple = int(row.get('Freq_Cheval_Jockey', 0)) if pd.notna(row.get('Freq_Cheval_Jockey')) else 0
         
         points_forts = []
         points_faibles = []
         
-        # Analyse de l'expérience et des gains du cheval via le Master Chevaux
-        if total_courses_cheval > 0:
-            points_forts.append(f"**Expérience solide** : Compte déjà {total_courses_cheval} courses à son actif en base pour un cumul de {gains_cheval:,.0f} € de gains.")
+        # 1. Analyse de l'expérience du cheval
+        if total_courses > 5:
+            points_forts.append(f"**Expérience confirmée** : Compte déjà **{total_courses} courses** enregistrées en base pour un total de **{gains_total:,.0f} €** de gains.")
+        elif total_courses > 0:
+            points_forts.append(f"**Jeune cheval** en phase d'apprentissage ({total_courses} course(s) répertoriée(s) pour {gains_total:,.0f} € de gains).")
         else:
-            points_faibles.append("Profil peu ou pas référencé dans l'historique global des masters.")
+            points_faibles.append("Aucun historique antérieur significatif retrouvé pour ce cheval dans les masters.")
 
-        # Analyse de l'association Cheval + Jockey via le Master Couplages
+        # 2. Analyse de l'association Cheval + Jockey
         if freq_couple > 1:
-            points_forts.append(f"💎 **Complicité avérée** : Le duo **{cheval_nom} / {jockey_nom}** a déjà été associées **{freq_couple} fois** par le passé.")
+            points_forts.append(f"💎 **Complicité du duo** : Le tandem **{cheval_nom} / {jockey_nom}** a déjà été associé **{freq_couple} fois** par le passé.")
         else:
-            points_forts.append(f"Première association ou association inédite avec le jockey **{jockey_nom}** (Master couplages).")
+            points_forts.append(f"Association inédite ou rare entre le cheval et son jockey **{jockey_nom**} dans notre base historique.")
 
-        # Analyse du volume du jockey via le Master Jockeys
-        if total_montes_jockey > 50:
-            points_forts.append(f"Piloté par un jockey très expérimenté sur notre base ({total_montes_jockey} montes répertoriées).")
+        # 3. Expérience du jockey
+        if total_montes > 30:
+            points_forts.append(f"Pilote très aguerri sur notre historique avec **{total_montes} montes** répertoriées pour **{jockey_nom}**.")
 
-        # Analyse de la musique
-        if musique:
-            victoires_recentes = musique.count('1')
-            places_recentes = musique.count('2') + musique.count('3')
-            if victoires_recentes > 0:
-                points_forts.append(f"Régularité récente active : {victoires_recentes} victoire(s) et {places_recentes} place(s) dans sa musique ({musique}).")
-            elif places_recentes >= 2:
-                points_forts.append(f"Régulier dans les accessits (musique : {musique}).")
+        # 4. Musique / Forme récente
+        if musique and musique.lower() != 'nan':
+            victoires = musique.count('1')
+            places = musique.count('2') + musique.count('3')
+            if victoires > 0:
+                points_forts.append(f"Récemment performant : affiche **{victoires} victoire(s)** et **{places} place(s)** dans sa musique récente ({musique}).")
+            elif places >= 2:
+                points_forts.append(f"Très régulier à l'arrivée des accessits (musique : {musique}).")
             else:
-                points_faibles.append(f"Musique récente incertaine ({musique}).")
+                points_faibles.append(f"Musique récente délicate ou inconstante ({musique}).")
 
-        # Analyse du poids
+        # 5. Poids
         ecart_poids = poids_cheval - poids_moyen
         if ecart_poids > 1.0:
-            points_faibles.append(f"Poids pénalisant de {poids_cheval:.1f} kg (+{abs(ecart_poids):.1f} kg par rapport à la moyenne du lot).")
+            points_faibles.append(f"Poids de **{poids_cheval:.1f} kg** (+{abs(ecart_poids):.1f} kg par rapport à la moyenne du lot), ce qui alourdit sa tâche.")
         elif ecart_poids < -1.0:
-            points_forts.append(f"Avantage pondéral notable : {poids_cheval:.1f} kg (-{abs(ecart_poids):.1f} kg vs la moyenne).")
-
-        # Équipements & Supplément
-        if any(k in equipement for k in ['O', 'A', 'OEILLERE', 'AUSTRALIENNE']) and 'SANS' not in equipement:
-            if int(row.get('Oeilleres_1ere_fois', 0)) == 1:
-                points_forts.append("🔥 **Coup de poker** : Muni d'œillères pour la **toute première fois** !")
-            else:
-                points_forts.append(f"muni de ses équipements habituels ({equipement}).")
-        
-        if pd.notna(supplement) and str(supplement).strip() not in ['', '0', '0.0', 'nan']:
-            points_forts.append("💎 **Supplémenté** pour cette épreuve (engagement visé).")
+            points_forts.append(f"Avantage pondéral notable : **{poids_cheval:.1f} kg** (-{abs(ecart_poids):.1f} kg sous la moyenne de l'épreuve).")
+        else:
+            points_forts.append(f"Poids correct et bien calé par rapport à la moyenne ({poids_cheval:.1f} kg).")
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité)", expanded=True):
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.write(f"**🏇 Jockey :** {jockey_nom} *({total_montes_jockey} montes réf.)*")
-                st.write(f"**⚖️ Poids :** {fix_poids(poids_cheval)} kg")
+                st.write(f"**🏇 Jockey :** {jockey_nom}")
+                st.write(f"**📊 Montes Jockey :** {total_montes}")
             with c2:
                 st.write(f"**👨‍🌾 Entraîneur :** {entraineur_nom}")
-                st.write(f"**🔢 Corde :** {int(row.get('Corde', 1))}")
+                st.write(f"**🔗 Association :** {freq_couple} fois ensemble")
             with c3:
-                st.write(f"**📊 Expérience :** {total_courses_cheval} courses")
-                st.write(f"**🔗 Association :** {freq_couple} courses communes")
+                st.write(f"**⚖️ Poids :** {fix_poids(poids_cheval)} kg")
+                st.write(f"**💰 Gains globaux :** {gains_total:,.0f} €")
 
             st.markdown("---")
             col_fort, col_faible = st.columns(2)

@@ -320,7 +320,7 @@ if not parts.empty:
         points_forts = []
         points_faibles = []
         
-        # 1. Analyse de l'expérience et des gains du cheval (Corrigée pour éviter le bug d'historique)
+        # 1. Expérience et gains
         if total_courses > 5 or gains_total > 0:
             courses_str = f" **{total_courses} courses** enregistrées" if total_courses > 0 else " historique de compétitions validé"
             points_forts.append(f"**Expérience et gains** :{courses_str} pour un cumul de **{gains_total:,.0f} €** de gains.")
@@ -329,17 +329,17 @@ if not parts.empty:
         else:
             points_faibles.append("Aucun historique antérieur significatif retrouvé pour ce cheval dans les masters.")
 
-        # 2. Répartition des surfaces (Gazon vs PSF)
+        # 2. Surfaces
         if courses_gazon > 0 or courses_psf > 0:
             points_forts.append(f"**Aptitude surfaces** : Répartition historique de **{courses_gazon} courses sur gazon** et **{courses_psf} courses sur PSF**.")
 
-        # 3. Association Cheval + Jockey (Dynamique et sans phrase générique)
+        # 3. Association Duo (Stictement factuelle, sans phrase générique)
         if freq_couple > 1:
             points_forts.append(f"💎 **Complicité du duo** : Le tandem **{cheval_nom} / {jockey_nom}** a déjà été associé **{freq_couple} fois** par le passé.")
         else:
             points_forts.append(f"Association inédite ou rare entre le cheval et son jockey **{jockey_nom}** dans notre base historique.")
 
-        # 4. Expérience du jockey et répartition
+        # 4. Jockey
         if total_montes > 30:
             points_forts.append(f"Pilote très aguerri (**{jockey_nom}**) avec **{total_montes} montes** enregistrées (dont {montes_gazon} sur gazon et {montes_psf} sur PSF).")
 
@@ -347,7 +347,7 @@ if not parts.empty:
         if is_supplemente:
             points_forts.append("🔥 **À NOTER** : Ce concurrent a été **supplémenté** pour participer à cette épreuve, signe d'un engagement estimé par son entourage !")
 
-        # 6. Musique / Forme récente
+        # 6. Musique
         if musique and musique.lower() != 'nan' and musique != '':
             victoires = musique.count('1')
             places = musique.count('2') + musique.count('3')

@@ -162,13 +162,29 @@ def predire_probas_v2(df_entree):
         
     df_p = df_entree.copy()
     
-    # Fusions exactes avec les fichiers Parquet Masters
+    # Fusions exactes avec les fichiers Parquet Masters (Chevaux, Jockeys, Entraineurs)
     if not df_chevaux.empty and 'Cheval_clean' in df_p.columns:
         df_p = df_p.merge(df_chevaux, on='Cheval_clean', how='left')
+        
     if not df_jockeys.empty and 'Jockey_clean' in df_p.columns:
-        df_p = df_p.merge(df_jockeys, on='Jockey_clean', how='left')
+        # Renommer les colonnes pour éviter les conflits si nécessaire et injecter les stats jockeys
+        df_j_prep = df_jockeys.rename(columns={
+            'Total_montes': 'Jockey_Total_Montes',
+            'Victoires': 'Jockey_Victoires',
+            'Places': 'Jockey_Places',
+            'Gains': 'Jockey_Gains'
+        }, errors='ignore')
+        df_p = df_p.merge(df_j_prep, on='Jockey_clean', how='left')
+        
     if not df_entraineurs.empty and 'Entraineur_clean' in df_p.columns:
-        df_p = df_p.merge(df_entraineurs, on='Entraineur_clean', how='left')
+        # Renommer les colonnes pour injecter les stats entraîneurs
+        df_e_prep = df_entraineurs.rename(columns={
+            'Total_courses': 'Entraineur_Total_Courses',
+            'Victoires': 'Entraineur_Victoires',
+            'Places': 'Entraineur_Places',
+            'Gains': 'Entraineur_Gains'
+        }, errors='ignore')
+        df_p = df_p.merge(df_e_prep, on='Entraineur_clean', how='left')
         
     if not df_couplages.empty and 'Cheval_clean' in df_p.columns and 'Jockey_clean' in df_p.columns:
         df_cj = df_couplages.rename(columns={'Entite_1': 'Cheval_clean', 'Entite_2': 'Jockey_clean', 'Frequence_Association': 'Freq_Cheval_Jockey'})
@@ -179,6 +195,8 @@ def predire_probas_v2(df_entree):
         'Total_courses': 0,
         'Gains_Total': 0.0,
         'Total_montes': 0,
+        'Jockey_Total_Montes': 0,
+        'Entraineur_Total_Courses': 0,
         'Freq_Cheval_Jockey': 0,
         'Oeilleres_1ere_fois': 0
     })
@@ -284,7 +302,7 @@ else:
     st.info("Aucune donnée disponible pour cette sélection.")
 
 # ==========================================
-# 6. ANALYSE NARRATIVE ULTRA-PRÉCISE ET CHIFFRÉE
+# 6. ANALYSE NARRATIVE ULTRA-PRÉCISE ET ENRICHIE
 # ==========================================
 if not parts.empty:
     st.markdown("---")
@@ -304,15 +322,23 @@ if not parts.empty:
         musique = str(row.get('Musique', ''))
         poids_cheval = float(row.get('Poids_num', 58.0))
         
-        # Statistiques réelles issues des Masters Parquet
+        # Statistiques issues des Masters Parquet (Cheval)
         total_courses = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
         gains_total = float(row.get('Gains_Total', 0.0)) if pd.notna(row.get('Gains_Total')) else 0.0
         courses_gazon = int(row.get('Courses_Gazon', 0)) if pd.notna(row.get('Courses_Gazon')) else 0
         courses_psf = int(row.get('Courses_PSF', 0)) if pd.notna(row.get('Courses_PSF')) else 0
         
-        total_montes = int(row.get('Total_montes', 0)) if pd.notna(row.get('Total_montes')) else 0
-        montes_gazon = int(row.get('Montes_Gazon', 0)) if pd.notna(row.get('Montes_Gazon')) else 0
-        montes_psf = int(row.get('Montes_PSF', 0)) if pd.notna(row.get('Montes_PSF')) else 0
+        # Statistiques issues du Master Jockeys
+        jockey_total_montes = int(row.get('Jockey_Total_Montes', row.get('Total_montes', 0))) if pd.notna(row.get('Jockey_Total_Montes', row.get('Total_montes', 0))) else 0
+        jockey_victoires = int(row.get('Jockey_Victoires', 0)) if pd.notna(row.get('Jockey_Victoires')) else 0
+        jockey_places = int(row.get('Jockey_Places', 0)) if pd.notna(row.get('Jockey_Places')) else 0
+        jockey_gains = float(row.get('Jockey_Gains', 0.0)) if pd.notna(row.get('Jockey_Gains')) else 0.0
+        
+        # Statistiques issues du Master Entraineurs
+        entraineur_total_courses = int(row.get('Entraineur_Total_Courses', 0)) if pd.notna(row.get('Entraineur_Total_Courses')) else 0
+        entraineur_victoires = int(row.get('Entraineur_Victoires', 0)) if pd.notna(row.get('Entraineur_Victoires')) else 0
+        entraineur_places = int(row.get('Entraineur_Places', 0)) if pd.notna(row.get('Entraineur_Places')) else 0
+        entraineur_gains = float(row.get('Entraineur_Gains', 0.0)) if pd.notna(row.get('Entraineur_Gains')) else 0.0
         
         freq_couple = int(row.get('Freq_Cheval_Jockey', 0)) if pd.notna(row.get('Freq_Cheval_Jockey')) else 0
         is_supplemente = str(row.get('Supplement', '0')) in ['1', '1.0', 'True', 'TRUE', 'Oui', 'OUI']
@@ -320,73 +346,81 @@ if not parts.empty:
         points_forts = []
         points_faibles = []
         
-        # 1. Expérience et gains
+        # 1. Expérience et gains du Cheval
         if total_courses > 5 or gains_total > 0:
-            courses_str = f" **{total_courses} courses** enregistrées" if total_courses > 0 else " historique de compétitions validé"
-            points_forts.append(f"**Expérience et gains** :{courses_str} pour un cumul de **{gains_total:,.0f} €** de gains.")
+            courses_str = f" **{total_courses} courses** enregistrées" if total_courses > 0 else " historique validé"
+            points_forts.append(f"**Profil Cheval** :{courses_str} pour un cumul de **{gains_total:,.0f} €** de gains (Gazon: {courses_gazon}, PSF: {courses_psf}).")
         elif total_courses > 0:
-            points_forts.append(f"**Jeune cheval** en phase d'apprentissage ({total_courses} course(s) répertoriée(s) pour {gains_total:,.0f} € de gains).")
+            points_forts.append(f"**Jeune cheval** en phase d'apprentissage ({total_courses} course(s) pour {gains_total:,.0f} € de gains).")
         else:
-            points_faibles.append("Aucun historique antérieur significatif retrouvé pour ce cheval dans les masters.")
+            points_faibles.append("Aucun historique antérieur significatif retrouvé pour ce cheval dans les bases.")
 
-        # 2. Surfaces
-        if courses_gazon > 0 or courses_psf > 0:
-            points_forts.append(f"**Aptitude surfaces** : Répartition historique de **{courses_gazon} courses sur gazon** et **{courses_psf} courses sur PSF**.")
+        # 2. Envergure et forme du Jockey
+        if jockey_total_montes > 0:
+            reussite_jockey_pct = ((jockey_victoires + jockey_places) / jockey_total_montes * 100) if jockey_total_montes > 0 else 0
+            points_forts.append(f"👨‍✈️ **Envergure Jockey ({jockey_nom})** : Pilote expérimenté avec **{jockey_total_montes} montes** répertoriées, affichant **{jockey_victoires} victoires** et **{jockey_places} places** (soit ~{reussite_jockey_pct:.1f}% de réussite globale dans les primes pour {jockey_gains:,.0f} € pilotés).")
+        else:
+            points_faibles.append(f"Données statistiques limitées dans la base pour le jockey **{jockey_nom}**.")
 
-        # 3. Association Duo (Stictement factuelle, sans phrase générique)
+        # 3. Envergure de l'Entraîneur
+        if entraineur_total_courses > 0:
+            reussite_ent_pct = ((entraineur_victoires + entraineur_places) / entraineur_total_courses * 100) if entraineur_total_courses > 0 else 0
+            points_forts.append(f"📋 **Forme Écurie ({entraineur_nom})** : Entraîneur suivi sur **{entraineur_total_courses} engagements** historiques, comptabilisant **{entraineur_victoires} victoires** et **{entraineur_places} places** (~{reussite_ent_pct:.1f}% de réussite, {entraineur_gains:,.0f} € de gains écurie).")
+        else:
+            points_faibles.append(f"Peu ou pas de volume d'historique consolidé pour l'écurie de **{entraineur_nom}** dans nos fichiers masters.")
+
+        # 4. Complicité du Duo (Cheval + Jockey) - Entièrement dynamique, sans phrase type
         if freq_couple > 1:
-            points_forts.append(f"💎 **Complicité du duo** : Le tandem **{cheval_nom} / {jockey_nom}** a déjà été associé **{freq_couple} fois** par le passé.")
+            points_forts.append(f"💎 **Complicité du tandem** : L'association **{cheval_nom} / {jockey_nom}** a déjà fait ses preuves avec **{freq_couple} associations** enregistrées en commun.")
         else:
-            points_forts.append(f"Association inédite ou rare entre le cheval et son jockey **{jockey_nom}** dans notre base historique.")
-
-        # 4. Jockey
-        if total_montes > 30:
-            points_forts.append(f"Pilote très aguerri (**{jockey_nom}**) avec **{total_montes} montes** enregistrées (dont {montes_gazon} sur gazon et {montes_psf} sur PSF).")
+            points_forts.append(f"Association nouvelle ou ponctuelle entre **{cheval_nom}** et le pilote **{jockey_nom}**.")
 
         # 5. Supplémentation
         if is_supplemente:
-            points_forts.append("🔥 **À NOTER** : Ce concurrent a été **supplémenté** pour participer à cette épreuve, signe d'un engagement estimé par son entourage !")
+            points_forts.append("🔥 **À NOTER** : Ce concurrent a été **supplémenté** pour participer à cette course, témoignant d'une vive ambition de son entourage.")
 
-        # 6. Musique
+        # 6. Musique / Forme récente
         if musique and musique.lower() != 'nan' and musique != '':
             victoires = musique.count('1')
             places = musique.count('2') + musique.count('3')
             if victoires > 0:
-                points_forts.append(f"Il affiche une belle régularité récente avec **{victoires} victoire(s)** et **{places} place(s)** repérées dans sa musique (**{musique}**).")
+                points_forts.append(f"Forme récente incisive : **{victoires} victoire(s)** et **{places} place(s)** repérées dans sa musique (**{musique}**).")
             elif places >= 2:
-                points_forts.append(f"Cheval très régulier dans les accessits (musique : **{musique}**), montrant de superbes dispositions pour s'immiscer à l'arrivée.")
+                points_forts.append(f"Régulier dans les accessits (musique : **{musique}**), idéal pour s'immiscer à l'arrivée.")
             else:
-                points_faibles.append(f"Sa musique récente (**{musique}**) montre un profil plus inconstant, nécessitant un rachat.")
+                points_faibles.append(f"Musique récente en dent de scie (**{musique}**), nécessitant de rassurer.")
         else:
-            points_faibles.append("Musique non renseignée ou indisponible pour affiner la forme récente.")
+            points_faibles.append("Musique non renseignée ou indisponible.")
 
         # 7. Poids
         ecart_poids = poids_cheval - poids_moy
         if ecart_poids > 1.0:
-            points_faibles.append(f"Il porte un poids de **{poids_cheval:.1f} kg**, soit **+{abs(ecart_poids):.1f} kg** de plus que la moyenne des partants, ce qui alourdit un peu sa tâche.")
+            points_faibles.append(f"L'épreuve s'annonce compliquée au poids : il porte **{poids_cheval:.1f} kg** soit **+{abs(ecart_poids):.1f} kg** par rapport à la moyenne du lot.")
         elif ecart_poids < -1.0:
-            points_forts.append(f"Avantage pondéral notable : il est bien situé au poids avec **{poids_cheval:.1f} kg** (-{abs(ecart_poids):.1f} kg sous la moyenne du lot).")
+            points_forts.append(f"Avantage au poids de choix : il ne porte que **{poids_cheval:.1f} kg** (-{abs(ecart_poids):.1f} kg sous la moyenne générale).")
         else:
-            points_forts.append(f"Il est bien situé au poids (portant **{poids_cheval:.1f} kg**, proche de la moyenne du lot).")
+            points_forts.append(f"Il est idéalement calé au poids avec **{poids_cheval:.1f} kg** (dans la moyenne des partants).")
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité)", expanded=True):
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.write(f"**🏇 Jockey :** {jockey_nom}")
-                st.write(f"**📊 Montes Jockey :** {total_montes}")
+                st.write(f"**📊 Montes (Jockey) :** {jockey_total_montes}")
+                st.write(f"**🏆 Victoires (Jockey) :** {jockey_victoires}")
             with c2:
                 st.write(f"**👨‍🌾 Entraîneur :** {entraineur_nom}")
-                st.write(f"**🔗 Association :** {freq_couple} fois ensemble")
+                st.write(f"**📊 Courses (Écurie) :** {entraineur_total_courses}")
+                st.write(f"**🏆 Victoires (Écurie) :** {entraineur_victoires}")
             with c3:
                 st.write(f"**⚖️ Poids :** {fix_poids(poids_cheval)} kg")
-                st.write(f"**💰 Gains globaux :** {gains_total:,.0f} €")
+                st.write(f"**🔗 Duo :** {freq_couple} fois ensemble")
                 st.write(f"**🎵 Musique :** {musique if musique else 'Inconnue'}")
 
             st.markdown("---")
             col_fort, col_faible = st.columns(2)
             
             with col_fort:
-                st.write("🟢 **Points forts & Analyse :**")
+                st.write("🟢 **Points forts & Analyse enrichie :**")
                 for pf in points_forts:
                     st.markdown(f"• {pf}")
 

@@ -140,7 +140,7 @@ def charger_toutes_les_courses():
                     rec['Poids'] = rec['Poids_num']
                     rec['Corde'] = int(rec['Corde_num'])
                     rec['Equipement'] = str(row.get('Oeilleres', 'SANS'))
-                    rec['Musique'] = str(row.get('Musique', ''))
+                    rec['Musique'] = str(row.get('Musique', '')) if pd.notna(row.get('Musique')) else ""
                     rec['Supplement'] = row.get('Supplement', 0)
                     records.append(rec)
                     
@@ -204,8 +204,14 @@ def predire_probas_v2(df_entree):
     else:
         df_p['raw_score'] = 0.5
         
-    # Tri décroissant selon le score du modèle d'IA
-    df_p = df_p.sort_values('raw_score', ascending=False)
+    # Tri intelligent combinant score IA, gains et nombre de courses pour éviter l'effet stéréotypé des numéros
+    sort_cols = ['raw_score', 'Gains_Total', 'Total_courses']
+    sort_ascending = [False, False, False]
+    for col in sort_cols:
+        if col not in df_p.columns:
+            df_p[col] = 0.0
+            
+    df_p = df_p.sort_values(by=sort_cols, ascending=sort_ascending)
     
     nb_p = len(df_p)
     base_top_proba = 70.0 if (8 <= nb_p <= 16) else 60.0
@@ -265,7 +271,7 @@ with st.sidebar:
 # ==========================================
 st.subheader(f"📊 Tableau Synthétique : {reunion_choisie} - {course_choisie} ({hippodrome_actuel}) — {nb_partants} Partants")
 if not parts.empty:
-    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Equipement', 'Proba_V4']
+    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Equipement', 'Musique', 'Proba_V4']
     colonnes_affichage = [c for c in colonnes_disponibles if c in parts.columns]
     
     df_affiche = parts[colonnes_affichage].copy()
@@ -285,7 +291,7 @@ if not parts.empty:
     st.subheader(f"🔍 Analyse Intelligente et Chiffrée des 3 favoris ({reunion_choisie} {course_choisie})")
 
     top3_parts = parts.head(3).copy().reset_index(drop=True)
-    poids_moyen = parts['Poids_num'].mean() if 'Poids_num' in parts.columns else 58.0
+    poids_moy = parts['Poids_num'].mean() if 'Poids_num' in parts.columns else 58.0
 
     for i in range(min(3, len(top3_parts))):
         row = top3_parts.iloc[i]
@@ -342,24 +348,26 @@ if not parts.empty:
             points_forts.append("🔥 **À NOTER** : Ce concurrent a été **supplémenté** pour participer à cette épreuve, signe d'un engagement estimé par son entourage !")
 
         # 6. Musique / Forme récente
-        if musique and musique.lower() != 'nan':
+        if musique and musique.lower() != 'nan' and musique != '':
             victoires = musique.count('1')
             places = musique.count('2') + musique.count('3')
             if victoires > 0:
-                points_forts.append(f"Récemment performant : affiche **{victoires} victoire(s)** et **{places} place(s)** dans sa musique récente ({musique}).")
+                points_forts.append(f"Il affiche une belle régularité récente avec **{victoires} victoire(s)** et **{places} place(s)** repérées dans sa musique (**{musique}**).")
             elif places >= 2:
-                points_forts.append(f"Très régulier à l'arrivée des accessits (musique : {musique}).")
+                points_forts.append(f"Cheval très régulier dans les accessits (musique : **{musique}**), montrant de superbes dispositions pour s'immiscer à l'arrivée.")
             else:
-                points_faibles.append(f"Musique récente délicate ou inconstante ({musique}).")
+                points_faibles.append(f"Sa musique récente (**{musique}**) montre un profil plus inconstant, nécessitant un rachat.")
+        else:
+            points_faibles.append("Musique non renseignée ou indisponible pour affiner la forme récente.")
 
         # 7. Poids
-        ecart_poids = poids_cheval - poids_moyen
+        ecart_poids = poids_cheval - poids_moy
         if ecart_poids > 1.0:
-            points_faibles.append(f"Poids de **{poids_cheval:.1f} kg** (+{abs(ecart_poids):.1f} kg par rapport à la moyenne du lot), ce qui alourdit sa tâche.")
+            points_faibles.append(f"Il porte un poids de **{poids_cheval:.1f} kg**, soit **+{abs(ecart_poids):.1f} kg** de plus que la moyenne des partants, ce qui alourdit un peu sa tâche.")
         elif ecart_poids < -1.0:
-            points_forts.append(f"Avantage pondéral notable : **{poids_cheval:.1f} kg** (-{abs(ecart_poids):.1f} kg sous la moyenne de l'épreuve).")
+            points_forts.append(f"Avantage pondéral notable : il est bien situé au poids avec **{poids_cheval:.1f} kg** (-{abs(ecart_poids):.1f} kg sous la moyenne du lot).")
         else:
-            points_forts.append(f"Poids correct et bien calé par rapport à la moyenne ({poids_cheval:.1f} kg).")
+            points_forts.append(f"Il est bien situé au poids (portant **{poids_cheval:.1f} kg**, proche de la moyenne du lot).")
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité)", expanded=True):
             c1, c2, c3 = st.columns(3)
@@ -372,12 +380,13 @@ if not parts.empty:
             with c3:
                 st.write(f"**⚖️ Poids :** {fix_poids(poids_cheval)} kg")
                 st.write(f"**💰 Gains globaux :** {gains_total:,.0f} €")
+                st.write(f"**🎵 Musique :** {musique if musique else 'Inconnue'}")
 
             st.markdown("---")
             col_fort, col_faible = st.columns(2)
             
             with col_fort:
-                st.write("🟢 **Points forts & Données Master :**")
+                st.write("🟢 **Points forts & Analyse :**")
                 for pf in points_forts:
                     st.markdown(f"• {pf}")
 

@@ -204,7 +204,7 @@ def predire_probas_v2(df_entree):
     else:
         df_p['raw_score'] = 0.5
         
-    # Tri intelligent combinant score IA, gains et nombre de courses pour éviter l'effet stéréotypé des numéros
+    # Tri intelligent combinant score IA, gains et nombre de courses
     sort_cols = ['raw_score', 'Gains_Total', 'Total_courses']
     sort_ascending = [False, False, False]
     for col in sort_cols:
@@ -303,7 +303,6 @@ if not parts.empty:
         entraineur_nom = row.get('Entraineur', 'son entraîneur')
         musique = str(row.get('Musique', ''))
         poids_cheval = float(row.get('Poids_num', 58.0))
-        equipement = str(row.get('Equipement', 'SANS')).upper()
         
         # Statistiques réelles issues des Masters Parquet
         total_courses = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
@@ -321,7 +320,7 @@ if not parts.empty:
         points_forts = []
         points_faibles = []
         
-        # 1. Analyse de l'expérience et des gains du cheval (Corrigée)
+        # 1. Analyse de l'expérience et des gains du cheval (Corrigée pour éviter le bug d'historique)
         if total_courses > 5 or gains_total > 0:
             courses_str = f" **{total_courses} courses** enregistrées" if total_courses > 0 else " historique de compétitions validé"
             points_forts.append(f"**Expérience et gains** :{courses_str} pour un cumul de **{gains_total:,.0f} €** de gains.")

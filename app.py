@@ -333,7 +333,7 @@ if not parts.empty:
         if courses_gazon > 0 or courses_psf > 0:
             points_forts.append(f"**Aptitude surfaces** : Répartition historique de **{courses_gazon} courses sur gazon** et **{courses_psf} courses sur PSF**.")
 
-        # 3. Association Cheval + Jockey
+        # 3. Association Cheval + Jockey (Dynamique et sans phrase générique)
         if freq_couple > 1:
             points_forts.append(f"💎 **Complicité du duo** : Le tandem **{cheval_nom} / {jockey_nom}** a déjà été associé **{freq_couple} fois** par le passé.")
         else:
@@ -396,7 +396,7 @@ if not parts.empty:
                     for pf in points_faibles:
                         st.markdown(f"• {pf}")
                 else:
-                    st.markdown("• Aucun point faible majeur relevé par les masters statistiques.")
+                    st.markdown("• Aucun point faible notable relevé dans son historique récent.")
 
             if int(row.get('Oeilleres_1ere_fois', 0)) == 1:
                 st.warning("🔥 **ALERTE ÉQUIPEMENT** : Première fois avec des œillères détectée !")

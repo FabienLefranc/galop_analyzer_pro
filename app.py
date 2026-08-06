@@ -262,11 +262,11 @@ else:
     st.info("Aucune donnée disponible pour cette sélection.")
 
 # ==========================================
-# 6. ANALYSE SHAP NARRATIVE ET INTELLIGENTE
+# 6. ANALYSE SHAP NARRATIVE ET INTELLIGENTE (MODE EXPERT)
 # ==========================================
 if not parts.empty:
     st.markdown("---")
-    st.subheader(f"🔍 Analyse Intelligente des 3 favoris ({reunion_choisie} {course_choisie})")
+    st.subheader(f"🔍 Analyse Intelligente et Chiffrée des 3 favoris ({reunion_choisie} {course_choisie})")
 
     top3_parts = parts.head(3).copy().reset_index(drop=True)
     poids_moyen = parts['Poids'].mean() if 'Poids' in parts.columns else 58.0
@@ -278,65 +278,84 @@ if not parts.empty:
         
         cheval_nom = row.get('Cheval', 'Ce cheval')
         jockey_nom = row.get('Driver_Jockey', 'son jockey')
+        entraineur_nom = row.get('Entraineur', 'son entraîneur')
         musique = str(row.get('Musique', ''))
         poids_cheval = float(row.get('Poids', 58.0))
         equipement = str(row.get('Equipement', 'SANS')).upper()
         supplement = row.get('Supplement', 0)
         
+        # Récupération des vraies stats issues des masters Parquet
+        total_courses_cheval = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
+        gains_cheval = float(row.get('Gains_Total', 0.0)) if pd.notna(row.get('Gains_Total')) else 0.0
+        total_montes_jockey = int(row.get('Total_montes', 0)) if pd.notna(row.get('Total_montes')) else 0
+        freq_couple = int(row.get('Freq_Cheval_Jockey', 0)) if pd.notna(row.get('Freq_Cheval_Jockey')) else 0
+        
         points_forts = []
         points_faibles = []
         
+        # Analyse de l'expérience et des gains du cheval via le Master Chevaux
+        if total_courses_cheval > 0:
+            points_forts.append(f"**Expérience solide** : Compte déjà {total_courses_cheval} courses à son actif en base pour un cumul de {gains_cheval:,.0f} € de gains.")
+        else:
+            points_faibles.append("Profil peu ou pas référencé dans l'historique global des masters.")
+
+        # Analyse de l'association Cheval + Jockey via le Master Couplages
+        if freq_couple > 1:
+            points_forts.append(f"💎 **Complicité avérée** : Le duo **{cheval_nom} / {jockey_nom}** a déjà été associées **{freq_couple} fois** par le passé.")
+        else:
+            points_forts.append(f"Première association ou association inédite avec le jockey **{jockey_nom}** (Master couplages).")
+
+        # Analyse du volume du jockey via le Master Jockeys
+        if total_montes_jockey > 50:
+            points_forts.append(f"Piloté par un jockey très expérimenté sur notre base ({total_montes_jockey} montes répertoriées).")
+
+        # Analyse de la musique
         if musique:
             victoires_recentes = musique.count('1')
             places_recentes = musique.count('2') + musique.count('3')
             if victoires_recentes > 0:
-                points_forts.append(f"Il affiche une belle régularité récente avec {victoires_recentes} victoire(s) et {places_recentes} place(s) repérées dans sa musique ({musique}).")
+                points_forts.append(f"Régularité récente active : {victoires_recentes} victoire(s) et {places_recentes} place(s) dans sa musique ({musique}).")
             elif places_recentes >= 2:
-                points_forts.append(f"Cheval très régulier dans les accessits (musique : {musique}), montrant de superbes dispositions pour s'immiscer à l'arrivée.")
+                points_forts.append(f"Régulier dans les accessits (musique : {musique}).")
             else:
-                points_faibles.append(f"Sa musique récente ({musique}) montre un profil plus inconstant, nécessitant un rachat.")
+                points_faibles.append(f"Musique récente incertaine ({musique}).")
 
+        # Analyse du poids
         ecart_poids = poids_cheval - poids_moyen
         if ecart_poids > 1.0:
-            points_faibles.append(f"Il porte un poids de {poids_cheval:.1f} kg, soit {abs(ecart_poids):.1f} kg de plus que la moyenne des partants, ce qui alourdit un peu sa tâche.")
+            points_faibles.append(f"Poids pénalisant de {poids_cheval:.1f} kg (+{abs(ecart_poids):.1f} kg par rapport à la moyenne du lot).")
         elif ecart_poids < -1.0:
-            points_forts.append(f"Il bénéficie d'un poids avantageux de {poids_cheval:.1f} kg ({abs(ecart_poids):.1f} kg en dessous de la moyenne de l'épreuve).")
-        else:
-            points_forts.append(f"Il est bien situé au poids (portant {poids_cheval:.1f} kg, proche de la moyenne du lot).")
+            points_forts.append(f"Avantage pondéral notable : {poids_cheval:.1f} kg (-{abs(ecart_poids):.1f} kg vs la moyenne).")
 
+        # Équipements & Supplément
         if any(k in equipement for k in ['O', 'A', 'OEILLERE', 'AUSTRALIENNE']) and 'SANS' not in equipement:
             if int(row.get('Oeilleres_1ere_fois', 0)) == 1:
-                points_forts.append(f"🔥 **Information clé** : Il est muni d'œillères pour la **toute première fois**, un paramètre souvent redoutable pour provoquer un déclic de performance.")
+                points_forts.append("🔥 **Coup de poker** : Muni d'œillères pour la **toute première fois** !")
             else:
-                points_forts.append(f"Il est muni d'équipements fermés ({equipement}), qu'il connait bien et qui semblent lui convenir.")
+                points_forts.append(f"muni de ses équipements habituels ({equipement}).")
         
         if pd.notna(supplement) and str(supplement).strip() not in ['', '0', '0.0', 'nan']:
-            points_forts.append(f"💎 **Supplémenté** pour cette course : son entourage n'effectue pas ce déplacement par hasard.")
-
-        points_forts.append(f"Associé à **{jockey_nom}**, son profil global et son aptitude lui confèrent de sérieux arguments pour viser haut.")
+            points_forts.append("💎 **Supplémenté** pour cette épreuve (engagement visé).")
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité)", expanded=True):
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.write(f"**🏇 Jockey :** {jockey_nom}")
+                st.write(f"**🏇 Jockey :** {jockey_nom} *({total_montes_jockey} montes réf.)*")
                 st.write(f"**⚖️ Poids :** {fix_poids(poids_cheval)} kg")
             with c2:
-                st.write(f"**👨‍🌾 Entraîneur :** {row.get('Entraineur', '-')}")
+                st.write(f"**👨‍🌾 Entraîneur :** {entraineur_nom}")
                 st.write(f"**🔢 Corde :** {int(row.get('Corde', 1))}")
             with c3:
-                st.write(f"**👁️ Équipement :** {equipement}")
-                st.write(f"**🎵 Musique :** {musique if musique else '-'}")
+                st.write(f"**📊 Expérience :** {total_courses_cheval} courses")
+                st.write(f"**🔗 Association :** {freq_couple} courses communes")
 
             st.markdown("---")
             col_fort, col_faible = st.columns(2)
             
             with col_fort:
-                st.write("🟢 **Points forts & Analyse :**")
-                if points_forts:
-                    for pf in points_forts:
-                        st.markdown(f"• {pf}")
-                else:
-                    st.write("• Profil globalement équilibré.")
+                st.write("🟢 **Points forts & Données Master :**")
+                for pf in points_forts:
+                    st.markdown(f"• {pf}")
 
             with col_faible:
                 st.write("🔴 **Points de vigilance / Faiblesses :**")
@@ -344,7 +363,7 @@ if not parts.empty:
                     for pf in points_faibles:
                         st.markdown(f"• {pf}")
                 else:
-                    st.markdown("• Aucun point faible notable relevé dans son historique récent.")
+                    st.markdown("• Aucun point faible majeur relevé par les masters statistiques.")
 
             if int(row.get('Oeilleres_1ere_fois', 0)) == 1:
-                st.warning("🔥 **EFFET SURPRISE MAJEUR** : Première fois avec des œillères ! Forte probabilité d'un comportement bonifié.")
+                st.warning("🔥 **ALERTE ÉQUIPEMENT** : Première fois avec des œillères détectée !")

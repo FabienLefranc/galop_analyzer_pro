@@ -302,31 +302,46 @@ if not parts.empty:
         # Statistiques réelles issues des Masters Parquet
         total_courses = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
         gains_total = float(row.get('Gains_Total', 0.0)) if pd.notna(row.get('Gains_Total')) else 0.0
-        total_montes = int(row.get('Total_montes', 0)) if pd.notna(row.get('Total_montes')) else 0
-        freq_couple = int(row.get('Freq_Cheval_Jockey', 0)) if pd.notna(row.get('Freq_Cheval_Jockey')) else 0
+        courses_gazon = int(row.get('Courses_Gazon', 0)) if pd.notna(row.get('Courses_Gazon')) else 0
+        courses_psf = int(row.get('Courses_PSF', 0)) if pd.notna(row.get('Courses_PSF')) else 0
         
+        total_montes = int(row.get('Total_montes', 0)) if pd.notna(row.get('Total_montes')) else 0
+        montes_gazon = int(row.get('Montes_Gazon', 0)) if pd.notna(row.get('Montes_Gazon')) else 0
+        montes_psf = int(row.get('Montes_PSF', 0)) if pd.notna(row.get('Montes_PSF')) else 0
+        
+        freq_couple = int(row.get('Freq_Cheval_Jockey', 0)) if pd.notna(row.get('Freq_Cheval_Jockey')) else 0
+        is_supplemente = str(row.get('Supplement', '0')) in ['1', '1.0', 'True', 'TRUE', 'Oui', 'OUI']
+
         points_forts = []
         points_faibles = []
         
-        # 1. Analyse de l'expérience du cheval
+        # 1. Analyse de l'expérience et des gains du cheval
         if total_courses > 5:
-            points_forts.append(f"**Expérience confirmée** : Compte déjà **{total_courses} courses** enregistrées en base pour un total de **{gains_total:,.0f} €** de gains.")
+            points_forts.append(f"**Expérience et gains** : Compte **{total_courses} courses** enregistrées en base pour un cumul de **{gains_total:,.0f} €** de gains.")
         elif total_courses > 0:
             points_forts.append(f"**Jeune cheval** en phase d'apprentissage ({total_courses} course(s) répertoriée(s) pour {gains_total:,.0f} € de gains).")
         else:
             points_faibles.append("Aucun historique antérieur significatif retrouvé pour ce cheval dans les masters.")
 
-        # 2. Analyse de l'association Cheval + Jockey
+        # 2. Répartition des surfaces (Gazon vs PSF)
+        if courses_gazon > 0 or courses_psf > 0:
+            points_forts.append(f"**Aptitude surfaces** : Répartition historique de **{courses_gazon} courses sur gazon** et **{courses_psf} courses sur PSF**.")
+
+        # 3. Association Cheval + Jockey
         if freq_couple > 1:
             points_forts.append(f"💎 **Complicité du duo** : Le tandem **{cheval_nom} / {jockey_nom}** a déjà été associé **{freq_couple} fois** par le passé.")
         else:
-            points_forts.append(f"Association inédite ou rare entre le cheval et son jockey **{jockey_nom**} dans notre base historique.")
+            points_forts.append(f"Association inédite ou rare entre le cheval et son jockey **{jockey_nom}** dans notre base historique.")
 
-        # 3. Expérience du jockey
+        # 4. Expérience du jockey et répartition
         if total_montes > 30:
-            points_forts.append(f"Pilote très aguerri sur notre historique avec **{total_montes} montes** répertoriées pour **{jockey_nom}**.")
+            points_forts.append(f"Pilote très aguerri (**{jockey_nom}**) avec **{total_montes} montes** enregistrées (dont {montes_gazon} sur gazon et {montes_psf} sur PSF).")
 
-        # 4. Musique / Forme récente
+        # 5. Supplémentation
+        if is_supplemente:
+            points_forts.append("🔥 **À NOTER** : Ce concurrent a été **supplémenté** pour participer à cette épreuve, signe d'un engagement estimé par son entourage !")
+
+        # 6. Musique / Forme récente
         if musique and musique.lower() != 'nan':
             victoires = musique.count('1')
             places = musique.count('2') + musique.count('3')
@@ -337,7 +352,7 @@ if not parts.empty:
             else:
                 points_faibles.append(f"Musique récente délicate ou inconstante ({musique}).")
 
-        # 5. Poids
+        # 7. Poids
         ecart_poids = poids_cheval - poids_moyen
         if ecart_poids > 1.0:
             points_faibles.append(f"Poids de **{poids_cheval:.1f} kg** (+{abs(ecart_poids):.1f} kg par rapport à la moyenne du lot), ce qui alourdit sa tâche.")

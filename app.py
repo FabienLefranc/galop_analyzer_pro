@@ -321,9 +321,10 @@ if not parts.empty:
         points_forts = []
         points_faibles = []
         
-        # 1. Analyse de l'expérience et des gains du cheval
-        if total_courses > 5:
-            points_forts.append(f"**Expérience et gains** : Compte **{total_courses} courses** enregistrées en base pour un cumul de **{gains_total:,.0f} €** de gains.")
+        # 1. Analyse de l'expérience et des gains du cheval (Corrigée)
+        if total_courses > 5 or gains_total > 0:
+            courses_str = f" **{total_courses} courses** enregistrées" if total_courses > 0 else " historique de compétitions validé"
+            points_forts.append(f"**Expérience et gains** :{courses_str} pour un cumul de **{gains_total:,.0f} €** de gains.")
         elif total_courses > 0:
             points_forts.append(f"**Jeune cheval** en phase d'apprentissage ({total_courses} course(s) répertoriée(s) pour {gains_total:,.0f} € de gains).")
         else:

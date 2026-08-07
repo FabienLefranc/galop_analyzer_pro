@@ -167,23 +167,37 @@ def predire_probas_v2(df_entree):
         df_p = df_p.merge(df_chevaux, on='Cheval_clean', how='left')
         
     if not df_jockeys.empty and 'Jockey_clean' in df_p.columns:
-        # Renommer les colonnes pour éviter les conflits si nécessaire et injecter les stats jockeys
-        df_j_prep = df_jockeys.rename(columns={
-            'Total_montes': 'Jockey_Total_Montes',
-            'Victoires': 'Jockey_Victoires',
-            'Places': 'Jockey_Places',
-            'Gains': 'Jockey_Gains'
-        }, errors='ignore')
+        # On inspecte les colonnes disponibles dans votre master jockeys pour s'adapter automatiquement
+        cols_j = df_jockeys.columns
+        col_vic_j = next((c for c in cols_j if 'victoire' in c.lower()), None)
+        col_place_j = next((c for c in cols_j if 'place' in c.lower()), None)
+        col_gains_j = next((c for c in cols_j if 'gain' in c.lower()), None)
+        col_montes_j = next((c for c in cols_j if 'monte' in c.lower() or 'course' in c.lower()), None)
+        
+        rename_j = {}
+        if col_vic_j: rename_j[col_vic_j] = 'Jockey_Victoires'
+        if col_place_j: rename_j[col_place_j] = 'Jockey_Places'
+        if col_gains_j: rename_j[col_gains_j] = 'Jockey_Gains'
+        if col_montes_j: rename_j[col_montes_j] = 'Jockey_Total_Montes'
+        
+        df_j_prep = df_jockeys.rename(columns=rename_j, errors='ignore')
         df_p = df_p.merge(df_j_prep, on='Jockey_clean', how='left')
         
     if not df_entraineurs.empty and 'Entraineur_clean' in df_p.columns:
-        # Renommer les colonnes pour injecter les stats entraîneurs
-        df_e_prep = df_entraineurs.rename(columns={
-            'Total_courses': 'Entraineur_Total_Courses',
-            'Victoires': 'Entraineur_Victoires',
-            'Places': 'Entraineur_Places',
-            'Gains': 'Entraineur_Gains'
-        }, errors='ignore')
+        # On inspecte les colonnes disponibles dans votre master entraîneurs
+        cols_e = df_entraineurs.columns
+        col_vic_e = next((c for c in cols_e if 'victoire' in c.lower()), None)
+        col_place_e = next((c for c in cols_e if 'place' in c.lower()), None)
+        col_gains_e = next((c for c in cols_e if 'gain' in c.lower()), None)
+        col_courses_e = next((c for c in cols_e if 'course' in c.lower() or 'partant' in c.lower()), None)
+        
+        rename_e = {}
+        if col_vic_e: rename_e[col_vic_e] = 'Entraineur_Victoires'
+        if col_place_e: rename_e[col_place_e] = 'Entraineur_Places'
+        if col_gains_e: rename_e[col_gains_e] = 'Entraineur_Gains'
+        if col_courses_e: rename_e[col_courses_e] = 'Entraineur_Total_Courses'
+        
+        df_e_prep = df_entraineurs.rename(columns=rename_e, errors='ignore')
         df_p = df_p.merge(df_e_prep, on='Entraineur_clean', how='left')
         
     if not df_couplages.empty and 'Cheval_clean' in df_p.columns and 'Jockey_clean' in df_p.columns:

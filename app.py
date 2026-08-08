@@ -92,6 +92,12 @@ def safe_float(val, default=0.0):
     except (ValueError, TypeError):
         return default
 
+def safe_int(val, default=0):
+    try:
+        return int(float(str(val).replace(',', '.').strip()))
+    except (ValueError, TypeError):
+        return default
+
 def fix_poids(valeur):
     try:
         return f"{float(valeur):.1f}"
@@ -141,7 +147,7 @@ def charger_toutes_les_courses():
                     rec['Corde'] = int(rec['Corde_num'])
                     rec['Equipement'] = str(row.get('Oeilleres', 'SANS'))
                     rec['Musique'] = str(row.get('Musique', '')) if pd.notna(row.get('Musique')) else ""
-                    rec['Supplement'] = row.get('Supplement', 0)
+                    rec['Supplement'] = safe_int(row.get('Supplement', 0))
                     records.append(rec)
                     
                 base_courses[r_str]["courses"][c_str] = records
@@ -169,7 +175,6 @@ def predire_probas_v2(df_entree):
     # Fusions Jockeys avec recherche universelle de colonnes
     if not df_jockeys.empty and 'Jockey_clean' in df_p.columns:
         cols_j = df_jockeys.columns
-        # Recherche intelligente par mots-clés larges (insensible à la casse)
         col_vic_j = next((c for c in cols_j if any(k in c.lower() for k in ['victoire', 'win', '1er', 'reussi'])), None)
         col_place_j = next((c for c in cols_j if any(k in c.lower() for k in ['place', 'podium', 'accessit'])) , None)
         col_gains_j = next((c for c in cols_j if any(k in c.lower() for k in ['gain', 'alloc', 'prime'])), None)
@@ -205,13 +210,14 @@ def predire_probas_v2(df_entree):
         df_cj = df_couplages.rename(columns={'Entite_1': 'Cheval_clean', 'Entite_2': 'Jockey_clean', 'Frequence_Association': 'Freq_Cheval_Jockey'})
         df_p = df_p.merge(df_cj[['Cheval_clean', 'Jockey_clean', 'Freq_Cheval_Jockey']], on=['Cheval_clean', 'Jockey_clean'], how='left')
 
-    # Valeurs par défaut et remplacements intelligents si les colonnes n'existent pas du tout dans les masters
+    # Valeurs par défaut et remplacements intelligents
     df_p = df_p.fillna({
         'Total_courses': 0,
+        'Total_Supplement': 0,
         'Gains_Total': 0.0,
         'Total_montes': 0,
         'Jockey_Total_Montes': 0,
-        'Jockey_Victoires': -1, # -1 permettra d'afficher une estimation propre si non trouvé
+        'Jockey_Victoires': -1,
         'Jockey_Places': -1,
         'Jockey_Gains': 0.0,
         'Entraineur_Total_Courses': 0,
@@ -219,7 +225,8 @@ def predire_probas_v2(df_entree):
         'Entraineur_Places': -1,
         'Entraineur_Gains': 0.0,
         'Freq_Cheval_Jockey': 0,
-        'Oeilleres_1ere_fois': 0
+        'Oeilleres_1ere_fois': 0,
+        'Supplement': 0
     })
 
     for col in actual_features:
@@ -309,12 +316,15 @@ with st.sidebar:
 # ==========================================
 st.subheader(f"📊 Tableau Synthétique : {reunion_choisie} - {course_choisie} ({hippodrome_actuel}) — {nb_partants} Partants")
 if not parts.empty:
-    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Equipement', 'Musique', 'Proba_V4']
+    # Ajout de 'Supplement' dans le tableau d'affichage
+    parts['Statut_Supplement'] = parts['Supplement'].apply(lambda x: "⭐ OUI" if safe_int(x) == 1 else "-")
+    
+    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Statut_Supplement', 'Equipement', 'Musique', 'Proba_V4']
     colonnes_affichage = [c for c in colonnes_disponibles if c in parts.columns]
     
     df_affiche = parts[colonnes_affichage].copy()
     if 'Nom' in df_affiche.columns:
-        df_affiche = df_affiche.rename(columns={'Nom': 'Cheval'})
+        df_affiche = df_affiche.rename(columns={'Nom': 'Cheval', 'Statut_Supplement': 'Supplémenté'})
     df_affiche.index = range(1, len(df_affiche) + 1)
     
     st.dataframe(df_affiche, use_container_width=True)
@@ -350,11 +360,9 @@ if not parts.empty:
         jockey_total_montes = int(row.get('Jockey_Total_Montes', row.get('Total_montes', 0))) if pd.notna(row.get('Jockey_Total_Montes', row.get('Total_montes', 0))) else 0
         jockey_victoires = int(row.get('Jockey_Victoires', 0)) if pd.notna(row.get('Jockey_Victoires')) else -1
         jockey_places = int(row.get('Jockey_Places', 0)) if pd.notna(row.get('Jockey_Places')) else -1
-        jockey_gains = float(row.get('Jockey_Gains', 0.0)) if pd.notna(row.get('Jockey_Gains')) else 0.0
         
-        # Si la colonne n'a pas été trouvée (-1), on fait une estimation proportionnelle logique aux montes pour éviter le "0" aberrant
         if jockey_victoires == -1 and jockey_total_montes > 0:
-            jockey_victoires = max(1, int(jockey_total_montes * 0.12)) # ~12% de réussite estimée standard
+            jockey_victoires = max(1, int(jockey_total_montes * 0.12))
             jockey_places = max(2, int(jockey_total_montes * 0.35))
         elif jockey_victoires == -1:
             jockey_victoires = 0
@@ -363,7 +371,6 @@ if not parts.empty:
         entraineur_total_courses = int(row.get('Entraineur_Total_Courses', 0)) if pd.notna(row.get('Entraineur_Total_Courses')) else 0
         entraineur_victoires = int(row.get('Entraineur_Victoires', 0)) if pd.notna(row.get('Entraineur_Victoires')) else -1
         entraineur_places = int(row.get('Entraineur_Places', 0)) if pd.notna(row.get('Entraineur_Places')) else -1
-        entraineur_gains = float(row.get('Entraineur_Gains', 0.0)) if pd.notna(row.get('Entraineur_Gains')) else 0.0
 
         if entraineur_victoires == -1 and entraineur_total_courses > 0:
             entraineur_victoires = max(1, int(entraineur_total_courses * 0.14))
@@ -373,7 +380,7 @@ if not parts.empty:
             entraineur_places = 0
         
         freq_couple = int(row.get('Freq_Cheval_Jockey', 0)) if pd.notna(row.get('Freq_Cheval_Jockey')) else 0
-        is_supplemente = str(row.get('Supplement', '0')) in ['1', '1.0', 'True', 'TRUE', 'Oui', 'OUI']
+        is_supplemente = safe_int(row.get('Supplement', 0)) == 1
 
         points_forts = []
         points_faibles = []
@@ -403,8 +410,9 @@ if not parts.empty:
         else:
             points_forts.append(f"Association nouvelle ou ponctuelle entre **{cheval_nom}** et le pilote **{jockey_nom}**.")
 
+        # Intégration claire du signalement "Supplémenté" dans l'analyse narrative
         if is_supplemente:
-            points_forts.append("🔥 **À NOTER** : Ce concurrent a été **supplémenté** pour participer à cette course, témoignant d'une vive ambition de son entourage.")
+            points_forts.append("🔥 **COUP DE CŒUR / ENGAGEMENT OFFENSIF** : Ce concurrent a été **supplémenté** pour prendre part à cette épreuve, ce qui démontre la forte confiance et l'ambition de son entourage.")
 
         if musique and musique.lower() != 'nan' and musique != '':
             victoires = musique.count('1')
@@ -426,7 +434,10 @@ if not parts.empty:
         else:
             points_forts.append(f"Il est idéalement calé au poids avec **{poids_cheval:.1f} kg** (dans la moyenne des partants).")
 
-        with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité)", expanded=True):
+        # Affichage visuel du statut supplémenté dans l'expander si actif
+        titre_badge_supplement = " ⭐ [SUPPLÉMENTÉ]" if is_supplemente else ""
+
+        with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité){titre_badge_supplement}", expanded=True):
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.write(f"**🏇 Jockey :** {jockey_nom}")

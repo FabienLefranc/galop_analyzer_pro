@@ -12,9 +12,7 @@ def nettoyer_nom(nom):
     """Nettoie et normalise un nom de cheval, jockey ou entraîneur."""
     if not isinstance(nom, str):
         return "INCONNU"
-    # Supprimer les accents
     n = unicodedata.normalize('NFD', nom).encode('ascii', 'ignore').decode('utf-8')
-    # Majuscules et suppression des espaces superflus
     n = re.sub(r'\s+', ' ', n).strip().upper()
     return n
 
@@ -51,6 +49,12 @@ def safe_float(val, default=0.0):
     except (ValueError, TypeError):
         return default
 
+def safe_int(val, default=0):
+    try:
+        return int(float(str(val).replace(',', '.').strip()))
+    except (ValueError, TypeError):
+        return default
+
 
 # ==========================================
 # 2. MOTEUR DE GÉNÉRATION DES MASTERS
@@ -83,16 +87,17 @@ def executer_generation_masters(url_ou_chemin_csv, output_dir="data/masters"):
     df['Entraineur_clean'] = df['Entraineur'].apply(nettoyer_nom) if 'Entraineur' in df.columns else "INCONNU"
     df['Proprietaire_clean'] = df['Proprietaire'].apply(nettoyer_nom) if 'Proprietaire' in df.columns else "INCONNU"
     
+    # Gestion sécurisée de la colonne Supplement (0 ou 1)
+    if 'Supplement' in df.columns:
+        df['Supplement_val'] = df['Supplement'].apply(safe_int)
+    else:
+        df['Supplement_val'] = 0
+
     df['Surface'] = df['Nature_Piste'].apply(determiner_surface) if 'Nature_Piste' in df.columns else "GAZON"
     df['Cat_Distance'] = df['Distance'].apply(categoriser_distance) if 'Distance' in df.columns else "Inconnue"
     df['Terrain_clean'] = df['Etat_Terrain'].fillna("Inconnu").astype(str).str.upper()
     df['Hippodrome_clean'] = df['Hippodrome'].fillna("Inconnu").astype(str).str.upper()
 
-    # Détection de la place (Victoire = 1, Podium = 1 ou 2 ou 3)
-    if 'Place_Corde' in df.columns:
-        # Si la place d'arrivée est disponible dans une colonne dédiée (ex: Place)
-        pass
-    
     # Structures d'accumulation en mémoire
     stats_chevaux = {}
     stats_jockeys = {}
@@ -112,12 +117,14 @@ def executer_generation_masters(url_ou_chemin_csv, output_dir="data/masters"):
         cat_dist = row['Cat_Distance']
         terrain = row['Terrain_clean']
         hippodrome = row['Hippodrome_clean']
+        is_supplemente = row['Supplement_val']
         
         # --- 1. STATS CHEVAL ---
         if c_cheval not in stats_chevaux:
             stats_chevaux[c_cheval] = {
                 'courses': 0, 'victoires': 0, 'podiums': 0,
                 'gains_total': 0.0,
+                'total_supplement': 0,
                 'surfaces': {'GAZON': 0, 'PSF': 0},
                 'distances': {},
                 'hippodromes': {},
@@ -127,6 +134,7 @@ def executer_generation_masters(url_ou_chemin_csv, output_dir="data/masters"):
         ch = stats_chevaux[c_cheval]
         ch['courses'] += 1
         ch['gains_total'] += safe_float(row.get('Gains_Carriere', 0))
+        ch['total_supplement'] += is_supplemente
         
         # Comptage surface
         if surface in ch['surfaces']:
@@ -163,15 +171,12 @@ def executer_generation_masters(url_ou_chemin_csv, output_dir="data/masters"):
         stats_proprietaires[c_proprio]['courses'] += 1
 
         # --- 5. STATS COUPLAGES ---
-        # Cheval + Jockey
         cj_key = f"{c_cheval}__{c_jockey}"
         stats_couplages[cj_key] = stats_couplages.get(cj_key, 0) + 1
 
-        # Cheval + Entraîneur
         ce_key = f"{c_cheval}__{c_entraineur}"
         stats_couplages[ce_key] = stats_couplages.get(ce_key, 0) + 1
 
-        # Jockey + Entraîneur
         je_key = f"{c_jockey}__{c_entraineur}"
         stats_couplages[je_key] = stats_couplages.get(je_key, 0) + 1
 
@@ -181,14 +186,13 @@ def executer_generation_masters(url_ou_chemin_csv, output_dir="data/masters"):
     os.makedirs(output_dir, exist_ok=True)
     print(f"💾 Sauvegarde des masters dans le dossier '{output_dir}'...")
 
-    # Conversion des dictionnaires en DataFrames plats pour le format Parquet
-    
-    # 1. Master Chevaux
+    # 1. Master Chevaux (Intègre désormais le cumul des suppléments)
     list_chevaux_rows = []
     for chev, data in stats_chevaux.items():
         list_chevaux_rows.append({
             'Cheval_clean': chev,
             'Total_courses': data['courses'],
+            'Total_Supplement': data['total_supplement'],
             'Gains_Total': data['gains_total'],
             'Courses_Gazon': data['surfaces']['GAZON'],
             'Courses_PSF': data['surfaces']['PSF'],
@@ -242,9 +246,8 @@ def executer_generation_masters(url_ou_chemin_csv, output_dir="data/masters"):
     df_master_couplages = pd.DataFrame(list_couplages_rows)
     df_master_couplages.to_parquet(os.path.join(output_dir, 'master_couplages.parquet'), index=False)
 
-    print("✅ Génération des masters terminée avec succès !")
+    print("✅ Génération des masters (avec prise en compte des suppléments) terminée avec succès !")
 
 if __name__ == "__main__":
-    # Exemple d'exécution directe avec votre URL Google Sheet ou un fichier local
     URL_HISTORIQUE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJugx0HS5vID0MHWLRO-5GYEBtb1vmJXvZrYPLfI4x6avcitpRO7dtfRE9WxK3UwZRpzx-59MRicxV/pub?gid=644246763&single=true&output=csv"
     executer_generation_masters(URL_HISTORIQUE)

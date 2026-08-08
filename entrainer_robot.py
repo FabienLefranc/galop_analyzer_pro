@@ -16,8 +16,6 @@ def entrainer_modele(dataset_path="data/dataset/dataset_entrainement.parquet", m
     print(f"📊 Dataset chargé : {df.shape[0]} lignes, {df.shape[1]} colonnes.")
 
     # Définition de la variable cible (Target)
-    # Ici, on cherche à prédire la victoire (Target_Victoire) ou le podium (Target_Podium). 
-    # Vous pouvez ajuster selon votre modélisation (ex: Target_Podium).
     target_col = 'Target_Victoire' if 'Target_Victoire' in df.columns else 'Target_Podium'
     if target_col not in df.columns:
         print(f"❌ Erreur : Aucune colonne cible (Target_Victoire ou Target_Podium) trouvée dans le dataset.")
@@ -26,12 +24,14 @@ def entrainer_modele(dataset_path="data/dataset/dataset_entrainement.parquet", m
     print(f"🎯 Variable cible retenue pour l'apprentissage : '{target_col}'")
 
     # Sélection automatique des variables explicatives (features numériques pertinentes)
+    # Ajout de 'Supplement' et 'Total_Supplement' ici 👇
     features_candidates = [
         'Poids_num', 'Corde_num', 
-        'Total_courses', 'Gains_Total', 
+        'Total_courses', 'Total_Supplement', 'Gains_Total', 
         'Courses_Gazon', 'Courses_PSF', 
         'Total_montes', 'Montes_Gazon', 'Montes_PSF', 
-        'Freq_Cheval_Jockey'
+        'Freq_Cheval_Jockey',
+        'Supplement'
     ]
 
     # Filtrer uniquement les colonnes présentes dans le dataset
@@ -75,7 +75,7 @@ def entrainer_modele(dataset_path="data/dataset/dataset_entrainement.parquet", m
     probs = model.predict_proba(X_test)[:, 1]
     
     acc = accuracy_score(y_test, preds)
-    print(résultat_eval := f"📈 Précision sur le set de test : {acc:.4f}")
+    print(f"📈 Précision sur le set de test : {acc:.4f}")
     if y.nunique() > 1:
         auc = roc_auc_score(y_test, probs)
         print(f"📊 Score ROC AUC : {auc:.4f}")

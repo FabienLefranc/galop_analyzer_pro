@@ -27,6 +27,12 @@ def safe_float(val, default=0.0):
     except (ValueError, TypeError):
         return default
 
+def safe_int(val, default=0):
+    try:
+        return int(float(str(val).replace(',', '.').strip()))
+    except (ValueError, TypeError):
+        return default
+
 # ==========================================
 # 2. CONSTRUCTION DU DATASET D'ENTRAÎNEMENT
 # ==========================================
@@ -60,6 +66,12 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
     df_hist['Jockey_clean'] = df_hist['Driver_Jockey'].apply(nettoyer_nom) if 'Driver_Jockey' in df_hist.columns else "INCONNU"
     df_hist['Entraineur_clean'] = df_hist['Entraineur'].apply(nettoyer_nom) if 'Entraineur' in df_hist.columns else "INCONNU"
     
+    # Gestion sécurisée de la colonne Supplement (0 ou 1) dans l'historique brut
+    if 'Supplement' in df_hist.columns:
+        df_hist['Supplement'] = df_hist['Supplement'].apply(safe_int)
+    else:
+        df_hist['Supplement'] = 0
+
     df_hist['Surface'] = df_hist['Nature_Piste'].apply(determiner_surface) if 'Nature_Piste' in df_hist.columns else "GAZON"
     
     # Traitement des variables contextuelles directes de la course
@@ -67,12 +79,10 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
     df_hist['Corde_num'] = df_hist['Place_Corde'].apply(lambda x: safe_float(x, 1.0)) if 'Place_Corde' in df_hist.columns else 1.0
 
     # Gestion de la cible (ex: Victoire ou présence dans le Top 3 / Target binaire)
-    # Adaptez selon le nom de votre colonne de résultat (ex: 'Place' ou 'Arrivee')
     if 'Classement' in df_hist.columns:
         df_hist['Target_Victoire'] = df_hist['Classement'].apply(lambda x: 1 if safe_float(x, 99) == 1 else 0)
         df_hist['Target_Podium'] = df_hist['Classement'].apply(lambda x: 1 if safe_float(x, 99) <= 3 else 0)
     else:
-        # Valeur par défaut si la colonne n'existe pas encore dans ce format
         df_hist['Target_Victoire'] = 0
         df_hist['Target_Podium'] = 0
 
@@ -89,19 +99,20 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
     # Gestion des couplages (Cheval + Jockey)
     print("🔗 Intégration des scores de couplages...")
     df_cj = df_couplages.rename(columns={'Entite_1': 'Cheval_clean', 'Entite_2': 'Jockey_clean', 'Frequence_Association': 'Freq_Cheval_Jockey'})
-    # Filtrage des lignes où Entite_1 est un cheval et Entite_2 un jockey (simplifié)
     df_dataset = df_dataset.merge(df_cj[['Cheval_clean', 'Jockey_clean', 'Freq_Cheval_Jockey']], on=['Cheval_clean', 'Jockey_clean'], how='left')
 
     # Nettoyage final des valeurs manquantes (NaN issus des fusions à gauche)
     df_dataset = df_dataset.fillna({
         'Total_courses': 0,
+        'Total_Supplement': 0,      # Sécurisation de la nouvelle colonne du master chevaux
         'Gains_Total': 0.0,
         'Courses_Gazon': 0,
         'Courses_PSF': 0,
         'Total_montes': 0,
         'Montes_Gazon': 0,
         'Montes_PSF': 0,
-        'Freq_Cheval_Jockey': 0
+        'Freq_Cheval_Jockey': 0,
+        'Supplement': 0             # Sécurisation si la colonne brute comporte des trous
     })
 
     # ==========================================
@@ -116,6 +127,5 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
     print(f"✅ Dataset généré avec succès ! Dimensions finales : {df_dataset.shape[0]} lignes x {df_dataset.shape[1]} colonnes.")
 
 if __name__ == "__main__":
-    # URL ou chemin vers votre fichier historique source
     URL_HISTORIQUE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJugx0HS5vID0MHWLRO-5GYEBtb1vmJXvZrYPLfI4x6avcitpRO7dtfRE9WxK3UwZRpzx-59MRicxV/pub?gid=644246763&single=true&output=csv"
     executer_generation_dataset(URL_HISTORIQUE)

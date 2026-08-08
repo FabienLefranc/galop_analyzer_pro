@@ -28,6 +28,12 @@ def safe_float(val, default=0.0):
     except (ValueError, TypeError):
         return default
 
+def safe_int(val, default=0):
+    try:
+        return int(float(str(val).replace(',', '.').strip()))
+    except (ValueError, TypeError):
+        return default
+
 # ==========================================
 # 2. MOTEUR DE PRÉDICTION DES COURSES DU JOUR
 # ==========================================
@@ -66,18 +72,24 @@ def predire_courses_du_jour(
 
     print(f"📊 {len(df_jour)} partants détectés. Application du pipeline de features...")
 
-    # Normalisation stricte des clés de jointure (identique à l'entraînement)
+    # Normalisation stricte des clés de jointure
     df_jour['Cheval_clean'] = df_jour['Nom'].apply(nettoyer_nom) if 'Nom' in df_jour.columns else "INCONNU"
     df_jour['Jockey_clean'] = df_jour['Driver_Jockey'].apply(nettoyer_nom) if 'Driver_Jockey' in df_jour.columns else "INCONNU"
     df_jour['Entraineur_clean'] = df_jour['Entraineur'].apply(nettoyer_nom) if 'Entraineur' in df_jour.columns else "INCONNU"
     
+    # Gestion sécurisée de la colonne Supplement (0 ou 1) pour les partants du jour
+    if 'Supplement' in df_jour.columns:
+        df_jour['Supplement'] = df_jour['Supplement'].apply(safe_int)
+    else:
+        df_jour['Supplement'] = 0
+
     df_jour['Surface'] = df_jour['Nature_Piste'].apply(determiner_surface) if 'Nature_Piste' in df_jour.columns else "GAZON"
     
     # Traitement des variables contextuelles directes
     df_jour['Poids_num'] = df_jour['Poids'].apply(lambda x: safe_float(x, 58.0)) if 'Poids' in df_jour.columns else 58.0
     df_jour['Corde_num'] = df_jour['Place_Corde'].apply(lambda x: safe_float(x, 1.0)) if 'Place_Corde' in df_jour.columns else 1.0
 
-    # --- Fusions successives avec les Masters (exactement comme dans generer_dataset_ia.py) ---
+    # --- Fusions successives avec les Masters ---
     df_pred = df_jour.merge(df_chevaux, on='Cheval_clean', how='left')
     df_pred = df_pred.merge(df_jockeys, on='Jockey_clean', how='left')
     df_pred = df_pred.merge(df_entraineurs, on='Entraineur_clean', how='left')
@@ -86,25 +98,28 @@ def predire_courses_du_jour(
     df_cj = df_couplages.rename(columns={'Entite_1': 'Cheval_clean', 'Entite_2': 'Jockey_clean', 'Frequence_Association': 'Freq_Cheval_Jockey'})
     df_pred = df_pred.merge(df_cj[['Cheval_clean', 'Jockey_clean', 'Freq_Cheval_Jockey']], on=['Cheval_clean', 'Jockey_clean'], how='left')
 
-    # Nettoyage des valeurs manquantes pour les nouveaux chevaux / associations
+    # Nettoyage des valeurs manquantes (avec ajout de Total_Supplement et Supplement)
     df_pred = df_pred.fillna({
         'Total_courses': 0,
+        'Total_Supplement': 0,
         'Gains_Total': 0.0,
         'Courses_Gazon': 0,
         'Courses_PSF': 0,
         'Total_montes': 0,
         'Montes_Gazon': 0,
         'Montes_PSF': 0,
-        'Freq_Cheval_Jockey': 0
+        'Freq_Cheval_Jockey': 0,
+        'Supplement': 0
     })
 
     # Sélection rigoureuse des mêmes features que lors de l'entraînement
     features = [
         'Poids_num', 'Corde_num', 
-        'Total_courses', 'Gains_Total', 
+        'Total_courses', 'Total_Supplement', 'Gains_Total', 
         'Courses_Gazon', 'Courses_PSF', 
         'Total_montes', 'Montes_Gazon', 'Montes_PSF', 
-        'Freq_Cheval_Jockey'
+        'Freq_Cheval_Jockey',
+        'Supplement'
     ]
 
     # Vérification que toutes les features existent bien
@@ -115,7 +130,6 @@ def predire_courses_du_jour(
     X_pred = df_pred[features].fillna(0).astype(np.float32)
 
     print("🚀 Calcul des probabilités de réussite par l'IA...")
-    # Prédiction des probabilités (colonne 1 = proba de succès)
     probabilities = model.predict_proba(X_pred)[:, 1]
     df_pred['Proba_IA'] = probabilities
 
@@ -126,29 +140,24 @@ def predire_courses_du_jour(
     print("🏆 PRONOSTICS ET PROBABILITÉS DU JOUR")
     print("="*50)
 
-    # Tri par course (si la colonne existe) puis par probabilité décroissante
-    colonnes_a_afficher = ['Nom', 'Driver_Jockey', 'Entraineur', 'Poids_num', 'Proba_IA']
     if 'Reunion' in df_pred.columns and 'Course' in df_pred.columns:
         df_sorted = df_pred.sort_values(by=['Reunion', 'Course', 'Proba_IA'], ascending=[True, True, False])
-        group_cols = ['Reunion', 'Course']
     else:
         df_sorted = df_pred.sort_values(by='Proba_IA', ascending=False)
-        group_cols = None
 
     for idx, row in df_sorted.iterrows():
         nom_cheval = row.get('Nom', 'Inconnu')
         jockey = row.get('Driver_Jockey', 'Inconnu')
+        supp_statut = "⭐ [SUP]" if row.get('Supplement', 0) == 1 else ""
         proba = row['Proba_IA'] * 100
-        print(f"🐎 {nom_cheval:<20} | Jockey: {jockey:<18} | 🎯 Indice IA: {proba:.2f}%")
+        print(f"🐎 {nom_cheval:<16} {supp_statut:<6} | Jockey: {jockey:<16} | 🎯 Indice IA: {proba:.2f}%")
 
     print("="*50)
     
-    # Sauvegarde optionnelle des résultats du jour
     output_csv = "resultats_predictions_du_jour.csv"
     df_sorted.to_csv(output_csv, index=False)
     print(f"💾 Les prédictions détaillées ont été sauvegardées dans '{output_csv}'")
 
 if __name__ == "__main__":
-    # Indiquez ici le chemin ou l'URL vers votre fichier CSV des partants du jour
     URL_PARTANTS_DU_JOUR = "chemin_vers_partants_du_jour.csv" 
     # predire_courses_du_jour(URL_PARTANTS_DU_JOUR)

@@ -303,23 +303,13 @@ with st.sidebar:
         for c_k, c_partants in r_val["courses"].items():
             nb_p_course = len(c_partants)
             df_c_tmp, _ = predire_probas_v2(pd.DataFrame(c_partants))
-            
-            # Vérification du critère des débutants (Maiden / Manque de données)
-            # 70% ou plus des partants ont 0, 1 ou 2 courses au compteur
-            if 'Total_courses' in df_c_tmp.columns and nb_p_course > 0:
-                nb_inexperiments = len(df_c_tmp[df_c_tmp['Total_courses'] <= 2])
-                pct_inexperiments = (nb_inexperiments / nb_p_course) * 100
-            else:
-                pct_inexperiments = 0.0
-
             top3_c = df_c_tmp.head(3)
             resume_str = ", ".join([f"N°{int(row['Num_PMU'])} {row['Nom']} ({row['Proba_V4']:.0f}%)" for _, row in top3_c.iterrows()])
             
-            # Condition validée : Entre 8 et 16 partants ET moins de 70% de débutants/inexpérimentés
-            if (8 <= nb_p_course <= 16) and (pct_inexperiments < 70.0):
+            if 8 <= nb_p_course <= 16:
                 st.markdown(f"<span style='color:green;'>• **{c_k}** ({nb_p_course} p.) : {resume_str}</span>", unsafe_allow_html=True)
             else:
-                st.markdown(f"<span style='color:red;'>• **{c_k}** ({nb_p_course} p. | {pct_inexperiments:.0f}% débutants) : {resume_str}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='color:red;'>• **{c_k}** ({nb_p_course} p.) : {resume_str}</span>", unsafe_allow_html=True)
 
 # ==========================================
 # 5. TABLEAU SYNTHÉTIQUE
@@ -420,6 +410,7 @@ if not parts.empty:
         else:
             points_forts.append(f"Association nouvelle ou ponctuelle entre **{cheval_nom}** et le pilote **{jockey_nom}**.")
 
+        # Intégration claire du signalement "Supplémenté" dans l'analyse narrative
         if is_supplemente:
             points_forts.append("🔥 **COUP DE CŒUR / ENGAGEMENT OFFENSIF** : Ce concurrent a été **supplémenté** pour prendre part à cette épreuve, ce qui démontre la forte confiance et l'ambition de son entourage.")
 
@@ -443,6 +434,7 @@ if not parts.empty:
         else:
             points_forts.append(f"Il est idéalement calé au poids avec **{poids_cheval:.1f} kg** (dans la moyenne des partants).")
 
+        # Affichage visuel du statut supplémenté dans l'expander si actif
         titre_badge_supplement = " ⭐ [SUPPLÉMENTÉ]" if is_supplemente else ""
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité){titre_badge_supplement}", expanded=True):

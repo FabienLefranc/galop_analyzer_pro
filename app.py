@@ -306,7 +306,7 @@ with st.sidebar:
             top3_c = df_c_tmp.head(3)
             resume_str = ", ".join([f"N°{int(row['Num_PMU'])} {row['Nom']} ({row['Proba_V4']:.0f}%)" for _, row in top3_c.iterrows()])
             
-            if 8 <= nb_p_course <= 16:
+            if 12 <= nb_p_course <= 16:
                 st.markdown(f"<span style='color:green;'>• **{c_k}** ({nb_p_course} p.) : {resume_str}</span>", unsafe_allow_html=True)
             else:
                 st.markdown(f"<span style='color:red;'>• **{c_k}** ({nb_p_course} p.) : {resume_str}</span>", unsafe_allow_html=True)

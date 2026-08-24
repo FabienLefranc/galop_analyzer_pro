@@ -1,14 +1,15 @@
 import os
 import pandas as pd
 import numpy as np
+import re
 
 # ==========================================
-# 1. FONCTIONS DE NETTOYAGE & COPIES (Mêmes règles)
+# 1. FONCTIONS DE NETTOYAGE & CALCUL MUSIQUE
 # ==========================================
 def nettoyer_nom(nom):
     if not isinstance(nom, str):
         return "INCONNU"
-    import unicodedata, re
+    import unicodedata
     n = unicodedata.normalize('NFD', nom).encode('ascii', 'ignore').decode('utf-8')
     return re.sub(r'\s+', ' ', n).strip().upper()
 
@@ -33,13 +34,45 @@ def safe_int(val, default=0):
     except (ValueError, TypeError):
         return default
 
+def evaluer_musique_avancee(musique_str):
+    """
+    Calcule un score basé sur la musique du cheval (5 dernières et 10 dernières).
+    Barème : 1er = 10 pts, 2ème = 9 pts, ..., 10ème = 1 pt, au-delà ou 0 = 0 pt.
+    """
+    if not isinstance(musique_str, str) or not musique_str.strip():
+        return 0.0
+    
+    # Extraction de tous les chiffres associés aux places
+    chiffres = re.findall(r'(\d+)[p|P|c|C|h|H|a|A|t|T|m|M|b|B|D|d]?', musique_str)
+    if not chiffres:
+        return 0.0
+    
+    classes = [int(c) for c in chiffres]
+    
+    def score_sous_liste(sous_liste):
+        points_totaux = 0
+        for c in sous_liste:
+            if 1 <= c <= 10:
+                pts = 11 - c  # 1er=10, 2eme=9, ..., 10eme=1
+            else:
+                pts = 0
+            points_totaux += pts
+        return points_totaux / max(1, len(sous_liste))
+
+    score_5 = score_sous_liste(classes[:5])
+    score_10 = score_sous_liste(classes[:10])
+    
+    # Moyenne des deux et multiplication par un facteur pour donner plus d'importance à la musique
+    score_final = ((score_5 + score_10) / 2.0) * 2.0 
+    return round(score_final, 2)
+
 # ==========================================
 # 2. CONSTRUCTION DU DATASET D'ENTRAÎNEMENT
 # ==========================================
 def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/masters", output_dir="data/dataset"):
     """
     Combine l'historique brut des courses avec les fichiers masters (Parquet)
-    pour produire le dataset d'entraînement structuré pour XGBoost.
+    pour produire le dataset d'entraînement structuré pour XGBoost, incluant la musique.
     """
     print("⏳ Chargement des fichiers masters...")
     try:
@@ -66,6 +99,12 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
     df_hist['Jockey_clean'] = df_hist['Driver_Jockey'].apply(nettoyer_nom) if 'Driver_Jockey' in df_hist.columns else "INCONNU"
     df_hist['Entraineur_clean'] = df_hist['Entraineur'].apply(nettoyer_nom) if 'Entraineur' in df_hist.columns else "INCONNU"
     
+    # Calcul du score de musique avancé à partir de la colonne brute 'Musique'
+    if 'Musique' in df_hist.columns:
+        df_hist['Score_Musique'] = df_hist['Musique'].apply(evaluer_musique_avancee)
+    else:
+        df_hist['Score_Musique'] = 0.0
+
     # Gestion sécurisée de la colonne Supplement (0 ou 1) dans l'historique brut
     if 'Supplement' in df_hist.columns:
         df_hist['Supplement'] = df_hist['Supplement'].apply(safe_int)
@@ -104,7 +143,7 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
     # Nettoyage final des valeurs manquantes (NaN issus des fusions à gauche)
     df_dataset = df_dataset.fillna({
         'Total_courses': 0,
-        'Total_Supplement': 0,      # Sécurisation de la nouvelle colonne du master chevaux
+        'Total_Supplement': 0,
         'Gains_Total': 0.0,
         'Courses_Gazon': 0,
         'Courses_PSF': 0,
@@ -112,7 +151,8 @@ def executer_generation_dataset(url_ou_chemin_historique, masters_dir="data/mast
         'Montes_Gazon': 0,
         'Montes_PSF': 0,
         'Freq_Cheval_Jockey': 0,
-        'Supplement': 0             # Sécurisation si la colonne brute comporte des trous
+        'Supplement': 0,
+        'Score_Musique': 0.0        # Sécurisation de notre nouveau score
     })
 
     # ==========================================

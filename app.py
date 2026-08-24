@@ -5,6 +5,7 @@ import xgboost as xgb
 import joblib
 import json
 import os
+import re
 
 # ==========================================
 # 1. CONFIGURATION & CHARGEMENT SÉCURISÉ
@@ -20,7 +21,8 @@ FEATURE_LABELS = {
     'Total_courses': 'Expérience (Total courses)',
     'Gains_Total': 'Gains totaux',
     'Total_montes': 'Expérience Jockey',
-    'Freq_Cheval_Jockey': 'Complicité Couple'
+    'Freq_Cheval_Jockey': 'Complicité Couple',
+    'Score_Musique': 'Score de Musique (Forme)'
 }
 
 @st.cache_data
@@ -42,7 +44,7 @@ def load_feature_names():
         'Total_courses', 'Gains_Total', 
         'Courses_Gazon', 'Courses_PSF', 
         'Total_montes', 'Montes_Gazon', 'Montes_PSF', 
-        'Freq_Cheval_Jockey'
+        'Freq_Cheval_Jockey', 'Supplement', 'Score_Musique'
     ]
 
 actual_features = load_feature_names()
@@ -81,7 +83,7 @@ model_v6 = model_res if not isinstance(model_res, str) else None
 def nettoyer_nom(nom):
     if not isinstance(nom, str):
         return "INCONNU"
-    import unicodedata, re
+    import unicodedata
     n = unicodedata.normalize('NFD', nom).encode('ascii', 'ignore').decode('utf-8')
     return re.sub(r'\s+', ' ', n).strip().upper()
 
@@ -103,6 +105,36 @@ def fix_poids(valeur):
         return f"{float(valeur):.1f}"
     except (ValueError, TypeError):
         return "58.0"
+
+def evaluer_musique_avancee(musique_str):
+    """
+    Calcule un score basé sur la musique du cheval (5 dernières et 10 dernières).
+    Barème : 1er = 10 pts, 2ème = 9 pts, ..., 10ème = 1 pt, au-delà ou 0 = 0 pt.
+    """
+    if not isinstance(musique_str, str) or not musique_str.strip():
+        return 0.0
+    
+    chiffres = re.findall(r'(\d+)[p|P|c|C|h|H|a|A|t|T|m|M|b|B|D|d]?', musique_str)
+    if not chiffres:
+        return 0.0
+    
+    classes = [int(c) for c in chiffres]
+    
+    def score_sous_liste(sous_liste):
+        points_totaux = 0
+        for c in sous_liste:
+            if 1 <= c <= 10:
+                pts = 11 - c
+            else:
+                pts = 0
+            points_totaux += pts
+        return points_totaux / max(1, len(sous_liste))
+
+    score_5 = score_sous_liste(classes[:5])
+    score_10 = score_sous_liste(classes[:10])
+    
+    score_final = ((score_5 + score_10) / 2.0) * 2.0 
+    return round(score_final, 2)
 
 # ==========================================
 # 2. CHARGEMENT DEPUIS LES EN-TÊTES GOOGLE SHEET
@@ -147,6 +179,7 @@ def charger_toutes_les_courses():
                     rec['Corde'] = int(rec['Corde_num'])
                     rec['Equipement'] = str(row.get('Oeilleres', 'SANS'))
                     rec['Musique'] = str(row.get('Musique', '')) if pd.notna(row.get('Musique')) else ""
+                    rec['Score_Musique'] = evaluer_musique_avancee(rec['Musique'])
                     rec['Supplement'] = safe_int(row.get('Supplement', 0))
                     records.append(rec)
                     
@@ -160,7 +193,7 @@ def charger_toutes_les_courses():
 db_courses = charger_toutes_les_courses()
 
 # ==========================================
-# 3. MOTEUR DE PRÉDICTION & FUSION MASTERS (ULTRA-ROBUSTE)
+# 3. MOTEUR DE PRÉDICTION & FUSION MASTERS
 # ==========================================
 def predire_probas_v2(df_entree):
     if df_entree.empty:
@@ -168,11 +201,17 @@ def predire_probas_v2(df_entree):
         
     df_p = df_entree.copy()
     
+    # Calcul ou sécurisation du Score de Musique
+    if 'Musique' in df_p.columns and 'Score_Musique' not in df_p.columns:
+        df_p['Score_Musique'] = df_p['Musique'].apply(evaluer_musique_avancee)
+    elif 'Score_Musique' not in df_p.columns:
+        df_p['Score_Musique'] = 0.0
+    
     # Fusions Chevaux
     if not df_chevaux.empty and 'Cheval_clean' in df_p.columns:
         df_p = df_p.merge(df_chevaux, on='Cheval_clean', how='left')
         
-    # Fusions Jockeys avec recherche universelle de colonnes
+    # Fusions Jockeys
     if not df_jockeys.empty and 'Jockey_clean' in df_p.columns:
         cols_j = df_jockeys.columns
         col_vic_j = next((c for c in cols_j if any(k in c.lower() for k in ['victoire', 'win', '1er', 'reussi'])), None)
@@ -189,7 +228,7 @@ def predire_probas_v2(df_entree):
         df_j_prep = df_jockeys.rename(columns=rename_j, errors='ignore')
         df_p = df_p.merge(df_j_prep, on='Jockey_clean', how='left')
         
-    # Fusions Entraineurs avec recherche universelle de colonnes
+    # Fusions Entraineurs
     if not df_entraineurs.empty and 'Entraineur_clean' in df_p.columns:
         cols_e = df_entraineurs.columns
         col_vic_e = next((c for c in cols_e if any(k in c.lower() for k in ['victoire', 'win', '1er', 'reussi'])), None)
@@ -210,7 +249,6 @@ def predire_probas_v2(df_entree):
         df_cj = df_couplages.rename(columns={'Entite_1': 'Cheval_clean', 'Entite_2': 'Jockey_clean', 'Frequence_Association': 'Freq_Cheval_Jockey'})
         df_p = df_p.merge(df_cj[['Cheval_clean', 'Jockey_clean', 'Freq_Cheval_Jockey']], on=['Cheval_clean', 'Jockey_clean'], how='left')
 
-    # Valeurs par défaut et remplacements intelligents
     df_p = df_p.fillna({
         'Total_courses': 0,
         'Total_Supplement': 0,
@@ -226,7 +264,8 @@ def predire_probas_v2(df_entree):
         'Entraineur_Gains': 0.0,
         'Freq_Cheval_Jockey': 0,
         'Oeilleres_1ere_fois': 0,
-        'Supplement': 0
+        'Supplement': 0,
+        'Score_Musique': 0.0
     })
 
     for col in actual_features:
@@ -250,7 +289,7 @@ def predire_probas_v2(df_entree):
     else:
         df_p['raw_score'] = 0.5
         
-    sort_cols = ['raw_score', 'Gains_Total', 'Total_courses']
+    sort_cols = ['raw_score', 'Score_Musique', 'Gains_Total']
     sort_ascending = [False, False, False]
     for col in sort_cols:
         if col not in df_p.columns:
@@ -316,15 +355,14 @@ with st.sidebar:
 # ==========================================
 st.subheader(f"📊 Tableau Synthétique : {reunion_choisie} - {course_choisie} ({hippodrome_actuel}) — {nb_partants} Partants")
 if not parts.empty:
-    # Ajout de 'Supplement' dans le tableau d'affichage
     parts['Statut_Supplement'] = parts['Supplement'].apply(lambda x: "⭐ OUI" if safe_int(x) == 1 else "-")
     
-    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Statut_Supplement', 'Equipement', 'Musique', 'Proba_V4']
+    colonnes_disponibles = ['Num_PMU', 'Nom', 'Driver_Jockey', 'Poids', 'Corde', 'Statut_Supplement', 'Equipement', 'Musique', 'Score_Musique', 'Proba_V4']
     colonnes_affichage = [c for c in colonnes_disponibles if c in parts.columns]
     
     df_affiche = parts[colonnes_affichage].copy()
     if 'Nom' in df_affiche.columns:
-        df_affiche = df_affiche.rename(columns={'Nom': 'Cheval', 'Statut_Supplement': 'Supplémenté'})
+        df_affiche = df_affiche.rename(columns={'Nom': 'Cheval', 'Statut_Supplement': 'Supplémenté', 'Score_Musique': 'Pts Musique'})
     df_affiche.index = range(1, len(df_affiche) + 1)
     
     st.dataframe(df_affiche, use_container_width=True)
@@ -350,6 +388,7 @@ if not parts.empty:
         jockey_nom = row.get('Driver_Jockey', 'son jockey')
         entraineur_nom = row.get('Entraineur', 'son entraîneur')
         musique = str(row.get('Musique', ''))
+        score_musique = float(row.get('Score_Musique', 0.0))
         poids_cheval = float(row.get('Poids_num', 58.0))
         
         total_courses = int(row.get('Total_courses', 0)) if pd.notna(row.get('Total_courses')) else 0
@@ -397,7 +436,7 @@ if not parts.empty:
             reussite_jockey_pct = ((jockey_victoires + jockey_places) / jockey_total_montes * 100) if jockey_total_montes > 0 else 0
             points_forts.append(f"👨‍✈️ **Envergure Jockey ({jockey_nom})** : Pilote expérimenté avec **{jockey_total_montes} montes** répertoriées, affichant environ **{jockey_victoires} victoires** et **{jockey_places} places** (~{reussite_jockey_pct:.1f}% de réussite globale).")
         else:
-            points_faibles.append(f"Données statistiques limitées dans la base pour le jockey **{jockey_nom}**.")
+            points_faibles.append(f"Données statistiques limitées dans la base pour le jockey **{jockey_nom**}.")
 
         if entraineur_total_courses > 0:
             reussite_ent_pct = ((entraineur_victoires + entraineur_places) / entraineur_total_courses * 100) if entraineur_total_courses > 0 else 0
@@ -410,19 +449,17 @@ if not parts.empty:
         else:
             points_forts.append(f"Association nouvelle ou ponctuelle entre **{cheval_nom}** et le pilote **{jockey_nom}**.")
 
-        # Intégration claire du signalement "Supplémenté" dans l'analyse narrative
         if is_supplemente:
             points_forts.append("🔥 **COUP DE CŒUR / ENGAGEMENT OFFENSIF** : Ce concurrent a été **supplémenté** pour prendre part à cette épreuve, ce qui démontre la forte confiance et l'ambition de son entourage.")
 
         if musique and musique.lower() != 'nan' and musique != '':
             victoires = musique.count('1')
             places = musique.count('2') + musique.count('3')
-            if victoires > 0:
-                points_forts.append(f"Forme récente incisive : **{victoires} victoire(s)** et **{places} place(s)** repérées dans sa musique (**{musique}**).")
-            elif places >= 2:
-                points_forts.append(f"Régulier dans les accessits (musique : **{musique}**), idéal pour s'immiscer à l'arrivée.")
+            points_forts.append(f"🎵 **Indice de Forme (Musique)** : Musique **{musique}** évaluée à un score pondéré de **{score_musique} pts** (basé sur ses 5 et 10 dernières courses).")
+            if victoires > 0 or places >= 2:
+                points_forts.append(f"Dynamique récente incisive avec **{victoires} victoire(s)** et **{places} accessit(s)** repérés.")
             else:
-                points_faibles.append(f"Musique récente en dent de scie (**{musique}**), nécessitant de rassurer.")
+                points_faibles.append(f"Musique récente en dent de scie (**{musique}**), nécessitant de rassurer malgré le score.")
         else:
             points_faibles.append("Musique non renseignée ou indisponible.")
 
@@ -434,7 +471,6 @@ if not parts.empty:
         else:
             points_forts.append(f"Il est idéalement calé au poids avec **{poids_cheval:.1f} kg** (dans la moyenne des partants).")
 
-        # Affichage visuel du statut supplémenté dans l'expander si actif
         titre_badge_supplement = " ⭐ [SUPPLÉMENTÉ]" if is_supplemente else ""
 
         with st.expander(f"{medaille} : N°{int(row['Num_PMU'])} - {cheval_nom} ({proba:.1f}% de fiabilité){titre_badge_supplement}", expanded=True):
@@ -449,8 +485,8 @@ if not parts.empty:
                 st.write(f"**🏆 Victoires (Écurie) :** {entraineur_victoires}")
             with c3:
                 st.write(f"**⚖️ Poids :** {fix_poids(poids_cheval)} kg")
+                st.write(f"**🎵 Score Musique :** {score_musique} pts")
                 st.write(f"**🔗 Duo :** {freq_couple} fois ensemble")
-                st.write(f"**🎵 Musique :** {musique if musique else 'Inconnue'}")
 
             st.markdown("---")
             col_fort, col_faible = st.columns(2)

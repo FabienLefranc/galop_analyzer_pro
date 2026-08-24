@@ -31,7 +31,8 @@ def entrainer_modele(dataset_path="data/dataset/dataset_entrainement.parquet", m
         'Courses_Gazon', 'Courses_PSF', 
         'Total_montes', 'Montes_Gazon', 'Montes_PSF', 
         'Freq_Cheval_Jockey',
-        'Supplement'
+        'Supplement',
+	'Score_Musique'
     ]
 
     # Filtrer uniquement les colonnes présentes dans le dataset

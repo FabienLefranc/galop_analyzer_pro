@@ -436,7 +436,7 @@ if not parts.empty:
             reussite_jockey_pct = ((jockey_victoires + jockey_places) / jockey_total_montes * 100) if jockey_total_montes > 0 else 0
             points_forts.append(f"👨‍✈️ **Envergure Jockey ({jockey_nom})** : Pilote expérimenté avec **{jockey_total_montes} montes** répertoriées, affichant environ **{jockey_victoires} victoires** et **{jockey_places} places** (~{reussite_jockey_pct:.1f}% de réussite globale).")
         else:
-            points_faibles.append(f"Données statistiques limitées dans la base pour le jockey **{jockey_nom**}.")
+            points_faibles.append(f"Données statistiques limitées dans la base pour le jockey **{jockey_nom}**.")
 
         if entraineur_total_courses > 0:
             reussite_ent_pct = ((entraineur_victoires + entraineur_places) / entraineur_total_courses * 100) if entraineur_total_courses > 0 else 0

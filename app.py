@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 GALOP ANALYZER PRO - APPLICATION STREAMLIT V2.7
-Affiche les prédictions du robot IA avec analyse narrative
-basée sur les 15 features les plus importantes du modèle.
+Version portable (compatible GitHub/Cloud)
 """
 import streamlit as st
 import pandas as pd
@@ -17,15 +16,16 @@ import requests
 import io
 
 # ============================================================
-# 1. CONFIGURATION & CHARGEMENT DES MODÈLES V2.7
+# 1. CONFIGURATION PORTABLE (chemins relatifs)
 # ============================================================
 st.set_page_config(page_title="🏇 Galop Analyzer Pro V2.7", layout="wide", page_icon="🏇")
 
-BASE_DIR = Path(r"C:\Users\33662\OneDrive\Bureau\galop_analyzer_pro")
+# ✅ BON (chemins relatifs - fonctionne partout)
+BASE_DIR = Path(__file__).parent
 MODEL_DIR = BASE_DIR / "models"
 DATASET_DIR = BASE_DIR / "data" / "dataset"
 
-# URLs Google Sheets
+# URLs Google Sheets (inchangées)
 URL_HISTORIQUE = (
     "https://docs.google.com/spreadsheets/d/e/"
     "2PACX-1vQJugx0HS5vID0MHWLRO-5GYEBtb1vmJXvZrYPLfI4x6av"
@@ -43,7 +43,6 @@ URL_COURSES_JOUR = (
 # FONCTIONS UTILITAIRES
 # ============================================================
 def nettoyer_nom(nom):
-    """Normalise un nom : MAJUSCULES, sans accents, espaces uniques."""
     if not isinstance(nom, str):
         return "INCONNU"
     n = unicodedata.normalize('NFD', nom).encode('ascii', 'ignore').decode('utf-8')
@@ -62,11 +61,10 @@ def safe_int(val, default=0):
         return default
 
 # ============================================================
-# 2. CHARGEMENT DES MODÈLES V2.7 ET MÉTADONNÉES
+# 2. CHARGEMENT DES MODÈLES V2.7 (avec vérification)
 # ============================================================
 @st.cache_resource
 def charger_modeles_v27():
-    """Charge les modèles V2.7 (Victoire + Podium) et les métadonnées."""
     resultats = {
         "modele_victoire": None,
         "modele_podium": None,
@@ -82,8 +80,13 @@ def charger_modeles_v27():
     path_podium = MODEL_DIR / "modele_galop_v27_podium.joblib"
     path_metadata = MODEL_DIR / "metadata_entrainement_v2_7.json"
 
-    if not path_victoire.exists() or not path_podium.exists():
-        resultats["erreur"] = "Modèles V2.7 introuvables. Lancez d'abord 'entrainer_robot_v2_7.py'."
+    # Vérification explicite
+    if not path_victoire.exists():
+        resultats["erreur"] = f"❌ Fichier introuvable : {path_victoire}\n\nAssure-toi que le dossier 'models/' contient les fichiers .joblib."
+        return resultats
+    
+    if not path_podium.exists():
+        resultats["erreur"] = f"❌ Fichier introuvable : {path_podium}"
         return resultats
 
     try:
@@ -98,22 +101,16 @@ def charger_modeles_v27():
             with open(path_metadata, "r", encoding="utf-8") as f:
                 metadata = json.load(f)
             resultats["features"] = metadata.get("features", [])
-            resultats["top_features_victoire"] = (
-                metadata.get("resultats", {}).get("Target_Victoire", {}).get("top_5_features", [])
-            )
-            resultats["top_features_podium"] = (
-                metadata.get("resultats", {}).get("Target_Podium", {}).get("top_5_features", [])
-            )
-            resultats["auc_victoire"] = (
-                metadata.get("resultats", {}).get("Target_Victoire", {}).get("auc", 0.0)
-            )
-            resultats["auc_podium"] = (
-                metadata.get("resultats", {}).get("Target_Podium", {}).get("auc", 0.0)
-            )
+            resultats["top_features_victoire"] = metadata.get("resultats", {}).get("Target_Victoire", {}).get("top_5_features", [])
+            resultats["top_features_podium"] = metadata.get("resultats", {}).get("Target_Podium", {}).get("top_5_features", [])
+            resultats["auc_victoire"] = metadata.get("resultats", {}).get("Target_Victoire", {}).get("auc", 0.0)
+            resultats["auc_podium"] = metadata.get("resultats", {}).get("Target_Podium", {}).get("auc", 0.0)
         except Exception:
             pass
 
     return resultats
+
+# ... (le reste du script reste identique à la version précédente)
 
 # ============================================================
 # 3. CHARGEMENT DE L'HISTORIQUE

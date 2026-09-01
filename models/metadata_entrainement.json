@@ -1,0 +1,84 @@
+{
+  "date_entrainement": "2026-09-01T18:46:30.343483",
+  "dataset": {
+    "nb_lignes": 99012,
+    "nb_colonnes": 73,
+    "date_min": "2025-09-02",
+    "date_max": "2026-08-30"
+  },
+  "features": [
+    "Distance",
+    "Nature_Piste",
+    "Etat_Terrain",
+    "Penetrometre",
+    "Num_PMU",
+    "Age",
+    "Place_Corde",
+    "Nb_Courses",
+    "Nb_Victoires",
+    "Nb_Places",
+    "Nb_Places_2e",
+    "Nb_Places_3e",
+    "Gains_Carriere",
+    "Gains_Victoires",
+    "Gains_Place",
+    "Gains_Annee_En_Cours",
+    "Gains_Annee_Precedente",
+    "Supplement",
+    "Poids",
+    "Mois_Course",
+    "Trimestre_Course",
+    "Surface_Confiance_Code",
+    "Hist_Nb_Courses",
+    "Hist_Victoires",
+    "Hist_Podiums",
+    "Hist_Taux_Victoire",
+    "Hist_Taux_Podium",
+    "Distance_km",
+    "Distance_Courte",
+    "Distance_Moyenne",
+    "Distance_Longue",
+    "Surface_PSF",
+    "Surface_Gazon",
+    "Surface_Inconnue",
+    "Hippodrome_Code",
+    "Discipline_Code",
+    "Corde_Piste_Code",
+    "Oeilleres_Code",
+    "Sexe_Code",
+    "Inedit_Code",
+    "Allure_Code",
+    "Surface_Final_Code",
+    "Surface_Source_Code",
+    "Surface_Methode_Code",
+    "Distance_Classe_Code",
+    "Saison_Course_Code"
+  ],
+  "nb_features": 46,
+  "resultats": {
+    "Target_Victoire": {
+      "accuracy": 0.6247033277786194,
+      "log_loss": 0.61623615026474,
+      "auc": 0.6319746468518807,
+      "top_5_features": [
+        "Hist_Taux_Podium",
+        "Inedit_Code",
+        "Num_PMU",
+        "Hist_Podiums",
+        "Nb_Courses"
+      ]
+    },
+    "Target_Podium": {
+      "accuracy": 0.5962732919254659,
+      "log_loss": 0.65968918800354,
+      "auc": 0.6523477660632822,
+      "top_5_features": [
+        "Hist_Taux_Podium",
+        "Num_PMU",
+        "Inedit_Code",
+        "Hist_Podiums",
+        "Gains_Annee_En_Cours"
+      ]
+    }
+  }
+}
